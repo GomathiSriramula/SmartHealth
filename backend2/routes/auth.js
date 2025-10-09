@@ -7,13 +7,25 @@ const { User } = require("../models");
 router.post("/auth/register", async (req, res) => {
   try {
     const { username, password, email } = req.body;
-    if (!username || !password)
-      return res.status(400).json({ error: "username and password required" });
-    // Check exists
-    const exists = await User.findOne({ username });
-    if (exists) return res.status(409).json({ error: "user exists" });
+    if (!username || !password || !email)
+      return res.status(400).json({ error: "username, password, and email are required" });
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Invalid email format" });
+    }
+    
+    // Check if username exists
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(409).json({ error: "username already exists" });
+    
+    // Check if email exists
+    const existingEmail = await User.findOne({ email });
+    if (existingEmail) return res.status(409).json({ error: "email already exists" });
+    
     const user = await createUser(username, password, email);
-    return res.json({ id: user._id, username: user.username });
+    return res.json({ id: user._id, username: user.username, email: user.email });
   } catch (e) {
     console.error(e);
     return res

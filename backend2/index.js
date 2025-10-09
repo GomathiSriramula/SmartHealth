@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const reportsRouter = require("./routes/reports");
 const sensorsRouter = require("./routes/sensors");
 const authRouter = require("./routes/auth");
+const predictionsRouter = require("./routes/predictions");
 
 const app = express();
 
@@ -33,6 +34,7 @@ app.use(morgan("dev"));
 app.use("/", reportsRouter);
 app.use("/", sensorsRouter);
 app.use("/", authRouter);
+app.use("/", predictionsRouter);
 
 // Force the ingestion API to listen on port 5000 as requested
 const PORT = 5000;
