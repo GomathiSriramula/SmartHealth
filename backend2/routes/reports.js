@@ -85,7 +85,7 @@ router.post("/reports", authMiddleware, async (req, res) => {
   }
 });
 
-router.get("/reports", authMiddleware, async (req, res) => {
+router.get("/reports", async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 1000);

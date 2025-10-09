@@ -41,7 +41,7 @@ router.post("/sensors", authMiddleware, async (req, res) => {
   }
 });
 
-router.get("/sensors", authMiddleware, async (req, res) => {
+router.get("/sensors", async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 1000);

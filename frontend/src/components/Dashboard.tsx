@@ -3,9 +3,12 @@ import LoadingSpinner from "./LoadingSpinner";
 import Alert from "./Alert";
 import StatsCard from "./StatsCard";
 import Navigation from "./Navigation";
+import { CSVUpload } from "./CSVUpload";
+import { PredictionsDashboard } from "./PredictionsDashboard";
 
 interface Report {
-  id: number;
+  _id?: string;
+  id?: number;
   patient_age: number;
   sex: string;
   lat: number;
@@ -51,11 +54,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   const fetchReports = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/reports`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const headers: HeadersInit = {};
+      // Only add Authorization header if token exists
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`${API_URL}/reports`, { headers });
       if (!res.ok) throw new Error(`Error: ${res.status}`);
       const data = await res.json();
       setReports(data);
@@ -83,12 +88,19 @@ const Dashboard: React.FC<DashboardProps> = ({
         lng: Number(formData.lng),
       };
 
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+        "x-api-key": "secret-key", // Always include API key as fallback
+      };
+      
+      // Add authorization header if token exists
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`${API_URL}/reports`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -279,6 +291,44 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </svg>
               }
             />
+            <TabButton
+              id="csv-upload"
+              label="CSV Upload"
+              icon={
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                  ></path>
+                </svg>
+              }
+            />
+            <TabButton
+              id="predictions"
+              label="ML Predictions"
+              icon={
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                  ></path>
+                </svg>
+              }
+            />
           </div>
         </aside>
 
@@ -419,9 +469,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {reports.slice(0, 5).map((report: Report) => (
+                      {reports.slice(0, 5).map((report: Report, index: number) => (
                         <div
-                          key={String(report.id)}
+                          key={report._id || report.id || `report-${index}`}
                           className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
                         >
                           <div className="flex items-center space-x-4">
@@ -526,9 +576,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                           </td>
                         </tr>
                       ) : (
-                        reports.map((report: Report) => (
+                        reports.map((report: Report, index: number) => (
                           <tr
-                            key={String(report.id)}
+                            key={report._id || report.id || `report-${index}`}
                             className="border-b border-gray-50 hover:bg-gray-50"
                           >
                             <td className="p-4">
@@ -537,7 +587,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                                   {report.sex}, {report.patient_age}y
                                 </p>
                                 <p className="text-sm text-gray-500">
-                                  ID: {report.id}
+                                  ID: {report._id || report.id}
                                 </p>
                               </div>
                             </td>
@@ -1091,6 +1141,16 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* CSV Upload Tab */}
+          {activeTab === "csv-upload" && (
+            <CSVUpload />
+          )}
+
+          {/* ML Predictions Tab */}
+          {activeTab === "predictions" && (
+            <PredictionsDashboard token={token} />
           )}
         </main>
       </div>

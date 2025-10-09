@@ -1,0 +1,11 @@
+reporter_type,reporter_id,patient_age,sex,lat,lng,symptoms,reported_at
+Clinic,c-2001,45,M,17.4530,78.3950,Fever|Headache,2025-11-01T10:30Z
+ASHA,r-2002,32,F,17.4520,78.3960,Diarrhea,2025-11-02T14:15Z
+Volunteer,v-2003,28,M,17.4510,78.3940,Vomiting|Nausea,2025-11-03T08:45Z
+Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z
+ASHA,r-2005,19,M,17.4525,78.3945,Fever|Cough,2025-11-05T11:00Z
+Volunteer,v-2006,67,F,17.4535,78.3955,Body Ache|Fatigue,2025-11-06T09:30Z
+Clinic,c-2007,41,M,17.4515,78.3965,Headache,2025-11-07T13:45Z
+ASHA,r-2008,8,F,17.4505,78.3935,Diarrhea|Fever,2025-11-08T07:10Z
+Volunteer,v-2009,52,M,17.4545,78.3975,Vomiting,2025-11-09T15:25Z
+Clinic,c-2010,34,F,17.4528,78.3958,Nausea|Stomach Pain,2025-11-10T12:00Z
