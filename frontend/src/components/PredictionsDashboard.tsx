@@ -309,23 +309,54 @@ export const PredictionsDashboard: React.FC<PredictionsDashboardProps> = ({ toke
                     Location Details
                   </h4>
                   {prediction.lat && prediction.lng ? (
-                    <div className="bg-gray-50 rounded p-4">
-                      <p className="text-sm text-gray-700 mb-2">
-                        <strong>Coordinates:</strong> {prediction.lat.toFixed(6)}, {prediction.lng.toFixed(6)}
-                      </p>
-                      <a
-                        href={`https://www.google.com/maps?q=${prediction.lat},${prediction.lng}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-blue-600 hover:underline inline-flex items-center"
-                      >
-                        View on Google Maps →
-                      </a>
+                    <div className="space-y-4">
+                      <div className="bg-gray-50 rounded p-4">
+                        <p className="text-sm text-gray-700 mb-3">
+                          <strong>Coordinates:</strong> {prediction.lat.toFixed(6)}, {prediction.lng.toFixed(6)}
+                        </p>
+                        
+                        {/* Google Maps Embed */}
+                        <div className="rounded-lg overflow-hidden border-2 border-gray-300 mb-3" style={{ height: '300px' }}>
+                          <iframe
+                            width="100%"
+                            height="100%"
+                            frameBorder="0"
+                            style={{ border: 0 }}
+                            src={`https://www.google.com/maps?q=${prediction.lat},${prediction.lng}&output=embed&z=15`}
+                            allowFullScreen
+                            title="Location Map"
+                          ></iframe>
+                        </div>
+
+                        {/* Open in Google Maps Button */}
+                        <a
+                          href={`https://www.google.com/maps?q=${prediction.lat},${prediction.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full inline-flex items-center justify-center px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors duration-200 shadow-sm"
+                        >
+                          <span className="mr-2">🗺️</span>
+                          Open in Google Maps
+                        </a>
+                      </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-500">
-                      {prediction.location || "No specific location data available"}
-                    </p>
+                    <div className="bg-gray-50 rounded p-4">
+                      <p className="text-sm text-gray-700 mb-3">
+                        <strong>Location:</strong> {prediction.location || "No specific location data available"}
+                      </p>
+                      {prediction.location && (
+                        <a
+                          href={`https://www.google.com/maps/search/${encodeURIComponent(prediction.location)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full inline-flex items-center justify-center px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors duration-200 shadow-sm"
+                        >
+                          <span className="mr-2">🗺️</span>
+                          Search on Google Maps
+                        </a>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
