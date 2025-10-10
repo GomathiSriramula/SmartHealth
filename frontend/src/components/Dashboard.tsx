@@ -38,7 +38,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [activeTab, setActiveTab] = useState("overview");
   const [formData, setFormData] = useState({
     reporter_type: "",
-    reporter_id: "",
     patient_age: "",
     sex: "",
     lat: "",
@@ -47,12 +46,15 @@ const Dashboard: React.FC<DashboardProps> = ({
     reported_at: "",
   });
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const API_URL = "http://127.0.0.1:5000";
 
   // Fetch reports from backend
-  const fetchReports = async () => {
-    setLoading(true);
+  const fetchReports = async (showLoading: boolean = true) => {
+    if (showLoading) {
+      setLoading(true);
+    }
     try {
       const headers: HeadersInit = {};
       // Only add Authorization header if token exists
@@ -60,29 +62,46 @@ const Dashboard: React.FC<DashboardProps> = ({
         headers.Authorization = `Bearer ${token}`;
       }
 
-      const res = await fetch(`${API_URL}/reports`, { headers });
+      // Only fetch reports for the current user, with limit of 10,000
+      const url = `${API_URL}/reports?reporter_id=${encodeURIComponent(username)}&limit=10000`;
+      const res = await fetch(url, { 
+        headers,
+        cache: 'no-cache' // Force fresh data, no caching
+      });
       if (!res.ok) throw new Error(`Error: ${res.status}`);
       const data = await res.json();
+      console.log('📊 Reports fetched for user', username, ':', data.length, 'reports'); // Debug log
       setReports(data);
     } catch (err) {
-      console.error(err);
+      console.error('❌ Error fetching reports:', err);
       setReports([]);
       setMessage("❌ Failed to load reports.");
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [username]);
+
+  // Debug: Log when reports state changes
+  useEffect(() => {
+    console.log('📊 Reports state updated. Total count:', reports.length);
+  }, [reports]);
 
   // Submit new report
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+    setMessage(""); // Clear any previous messages
+    
     try {
       const payload = {
         ...formData,
+        reporter_id: username, // 🔑 Always use logged-in username as reporter_id
         patient_age: Number(formData.patient_age),
         lat: Number(formData.lat),
         lng: Number(formData.lng),
@@ -98,18 +117,29 @@ const Dashboard: React.FC<DashboardProps> = ({
         headers["Authorization"] = `Bearer ${token}`;
       }
 
+      console.log('📤 Submitting report for user:', username, payload); // Debug log
+
       const res = await fetch(`${API_URL}/reports`, {
         method: "POST",
         headers,
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error(`Error: ${res.status}`);
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('❌ Server error:', res.status, errorData);
+        throw new Error(`Error: ${res.status}`);
+      }
 
-      setMessage("✅ Report submitted successfully!");
+      const savedReport = await res.json();
+      console.log('✅ Report submitted successfully:', savedReport);
+
+      // Show success message
+      setMessage("✅ Report submitted successfully! Refreshing data...");
+      
+      // Reset form
       setFormData({
         reporter_type: "",
-        reporter_id: "",
         patient_age: "",
         sex: "",
         lat: "",
@@ -117,10 +147,25 @@ const Dashboard: React.FC<DashboardProps> = ({
         symptoms: [],
         reported_at: "",
       });
-      fetchReports();
+      
+      // Wait a brief moment for backend to process, then fetch updated reports
+      // Don't show loading spinner to avoid UI flicker
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await fetchReports(false);
+      
+      console.log('🔄 Dashboard data refreshed. New total:', reports.length + 1);
+      
+      // Update success message
+      setMessage("✅ Report submitted successfully! Dashboard updated.");
+      
+      // Auto-clear success message after 5 seconds
+      setTimeout(() => setMessage(""), 5000);
+      
     } catch (err) {
-      console.error(err);
-      setMessage("❌ Failed to submit report.");
+      console.error('❌ Submission error:', err);
+      setMessage("❌ Failed to submit report. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -337,13 +382,35 @@ const Dashboard: React.FC<DashboardProps> = ({
           {/* Overview Tab */}
           {activeTab === "overview" && (
             <div className="space-y-6">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                  Health Monitoring Overview
-                </h1>
-                <p className="text-gray-600">
-                  Real-time surveillance for water-borne disease prevention
-                </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                    Health Monitoring Overview
+                  </h1>
+                  <p className="text-gray-600">
+                    Real-time surveillance for water-borne disease prevention
+                  </p>
+                </div>
+                <button
+                  onClick={() => fetchReports(true)}
+                  disabled={loading}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg
+                    className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`}
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    ></path>
+                  </svg>
+                  <span>{loading ? 'Refreshing...' : 'Refresh Data'}</span>
+                </button>
               </div>
 
               {/* Stats Cards */}
@@ -522,7 +589,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </p>
                 </div>
                 <button
-                  onClick={fetchReports}
+                  onClick={() => fetchReports(true)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Refresh
@@ -709,21 +776,19 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Reporter ID
+                        Reporter ID (Your Username)
                       </label>
                       <input
                         type="text"
-                        value={formData.reporter_id}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            reporter_id: e.target.value,
-                          })
-                        }
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Enter reporter ID"
-                        required
+                        value={username}
+                        readOnly
+                        disabled
+                        className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                        placeholder="Auto-filled with your username"
                       />
+                      <p className="text-xs text-gray-500 mt-1">
+                        This is automatically set to your username
+                      </p>
                     </div>
 
                     <div>
@@ -849,7 +914,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                       onClick={() =>
                         setFormData({
                           reporter_type: "",
-                          reporter_id: "",
                           patient_age: "",
                           sex: "",
                           lat: "",
@@ -858,15 +922,20 @@ const Dashboard: React.FC<DashboardProps> = ({
                           reported_at: "",
                         })
                       }
-                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      disabled={submitting}
+                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Reset
                     </button>
                     <button
                       type="submit"
-                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      disabled={submitting}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
                     >
-                      Submit Report
+                      {submitting && (
+                        <LoadingSpinner size="sm" />
+                      )}
+                      <span>{submitting ? "Submitting..." : "Submit Report"}</span>
                     </button>
                   </div>
                 </form>
@@ -1145,7 +1214,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 
           {/* CSV Upload Tab */}
           {activeTab === "csv-upload" && (
-            <CSVUpload />
+            <CSVUpload 
+              token={token} 
+              onUploadSuccess={() => fetchReports(false)}
+            />
           )}
 
           {/* ML Predictions Tab */}

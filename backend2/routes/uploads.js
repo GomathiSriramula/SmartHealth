@@ -5,6 +5,7 @@ const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
 const { CaseReport, SensorReading } = require("../models");
+const { authMiddleware } = require("../utils/auth");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -43,17 +44,22 @@ const upload = multer({
  * 
  * Expected CSV columns:
  * reporter_type, reporter_id, patient_age, sex, lat, lng, symptoms, reported_at
+ * 
+ * Note: reporter_id will be overridden with the authenticated user's username
  */
-router.post("/upload/case-reports", upload.single("file"), async (req, res) => {
+router.post("/upload/case-reports", authMiddleware, upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
     const filePath = req.file.path;
+    const authenticatedUsername = req.user.username; // Get username from auth token
     const results = [];
     const errors = [];
     let lineNumber = 1; // Start at 1 for header
+
+    console.log('📤 CSV Upload: User', authenticatedUsername, 'uploading case reports');
 
     // Parse CSV file
     fs.createReadStream(filePath)
@@ -61,8 +67,8 @@ router.post("/upload/case-reports", upload.single("file"), async (req, res) => {
       .on("data", (data) => {
         lineNumber++;
         try {
-          // Validate required fields
-          if (!data.reporter_type || !data.reporter_id || !data.patient_age || 
+          // Validate required fields (reporter_id is optional as we override it)
+          if (!data.reporter_type || !data.patient_age || 
               !data.sex || !data.lat || !data.lng || !data.symptoms || !data.reported_at) {
             errors.push({
               line: lineNumber,
@@ -78,7 +84,7 @@ router.post("/upload/case-reports", upload.single("file"), async (req, res) => {
           // Create case report object
           const caseReport = {
             reporter_type: data.reporter_type.trim(),
-            reporter_id: data.reporter_id.trim(),
+            reporter_id: authenticatedUsername, // 🔑 Always use authenticated user's username
             patient_age: parseInt(data.patient_age),
             sex: data.sex.trim().toUpperCase(),
             lat: parseFloat(data.lat),

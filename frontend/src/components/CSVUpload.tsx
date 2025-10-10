@@ -16,7 +16,12 @@ interface UploadResult {
   }>;
 }
 
-export const CSVUpload: React.FC = () => {
+interface CSVUploadProps {
+  token: string;
+  onUploadSuccess?: () => void;
+}
+
+export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadType, setUploadType] = useState<'case-reports' | 'sensor-readings'>('case-reports');
   const [uploading, setUploading] = useState(false);
@@ -85,8 +90,17 @@ export const CSVUpload: React.FC = () => {
         ? '/upload/case-reports' 
         : '/upload/sensor-readings';
 
+      const headers: HeadersInit = {};
+      // Add authorization header if token exists
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      console.log('📤 Uploading CSV file:', selectedFile.name, 'Type:', uploadType);
+
       const response = await fetch(`${API_URL}${endpoint}`, {
         method: 'POST',
+        headers,
         body: formData,
       });
 
@@ -95,6 +109,8 @@ export const CSVUpload: React.FC = () => {
       if (!response.ok) {
         throw new Error(data.error || 'Upload failed');
       }
+
+      console.log('✅ CSV upload successful:', data.summary);
 
       setResult(data);
       setSelectedFile(null);
@@ -107,6 +123,15 @@ export const CSVUpload: React.FC = () => {
 
       // Refresh stats
       fetchStats();
+
+      // 🔑 Trigger dashboard refresh to update report counts
+      if (onUploadSuccess && uploadType === 'case-reports') {
+        console.log('🔄 Triggering dashboard refresh after CSV upload');
+        // Wait a moment for backend to finish processing
+        setTimeout(() => {
+          onUploadSuccess();
+        }, 500);
+      }
     } catch (err) {
       console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Upload failed');

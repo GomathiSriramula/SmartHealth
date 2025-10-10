@@ -88,8 +88,12 @@ router.post("/reports", authMiddleware, async (req, res) => {
 router.get("/reports", async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
-    const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 1000);
-    const docs = await CaseReport.find().skip(skip).limit(limit).lean();
+    const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 10000); // 🔑 Increased to 10,000
+    const filter = {};
+    if (req.query.reporter_id) {
+      filter.reporter_id = req.query.reporter_id;
+    }
+    const docs = await CaseReport.find(filter).skip(skip).limit(limit).lean();
     return res.json(docs);
   } catch (e) {
     console.error(e);
