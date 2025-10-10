@@ -4,8 +4,9 @@ const multer = require("multer");
 const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
-const { CaseReport, SensorReading } = require("../models");
+const { CaseReport, SensorReading, Prediction } = require("../models");
 const { authMiddleware } = require("../utils/auth");
+const { notifyUsersOfPrediction } = require("../utils/mailer");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -37,6 +38,146 @@ const upload = multer({
   fileFilter: fileFilter,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
+
+/**
+ * Analyze health report symptoms for risk level
+ */
+function analyzeReportRisk(report) {
+  const symptoms = Array.isArray(report.symptoms) ? report.symptoms : [];
+  
+  const highRiskSymptoms = [
+    'severe diarrhea', 'diarrhea', 'bloody stool', 'bloody diarrhea',
+    'dehydration', 'severe dehydration', 'cholera', 'typhoid',
+    'dysentery', 'hepatitis', 'severe vomiting', 'high fever with diarrhea'
+  ];
+  
+  const mediumRiskSymptoms = [
+    'nausea', 'vomiting', 'stomach cramps', 'abdominal pain',
+    'mild fever', 'fatigue', 'weakness', 'headache', 'loss of appetite'
+  ];
+  
+  const normalizedSymptoms = symptoms.map(s => s.toLowerCase().trim());
+  
+  const highRiskMatches = normalizedSymptoms.filter(s => 
+    highRiskSymptoms.some(hrs => s.includes(hrs) || hrs.includes(s))
+  ).length;
+  
+  const mediumRiskMatches = normalizedSymptoms.filter(s => 
+    mediumRiskSymptoms.some(mrs => s.includes(mrs) || mrs.includes(s))
+  ).length;
+  
+  let riskLevel = 'low';
+  let confidence = 50;
+  
+  if (highRiskMatches >= 2) {
+    riskLevel = 'high';
+    confidence = Math.min(85 + (highRiskMatches * 5), 98);
+  } else if (highRiskMatches === 1) {
+    riskLevel = 'high';
+    confidence = 75 + (mediumRiskMatches * 3);
+  } else if (mediumRiskMatches >= 3) {
+    riskLevel = 'medium';
+    confidence = 65 + (mediumRiskMatches * 2);
+  } else if (mediumRiskMatches >= 1) {
+    riskLevel = 'low';
+    confidence = 50 + (mediumRiskMatches * 5);
+  }
+  
+  return { riskLevel, confidence, highRiskMatches, mediumRiskMatches };
+}
+
+/**
+ * Analyze CSV upload results and create prediction if HIGH RISK cases found
+ */
+async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
+  try {
+    if (!reports || reports.length === 0) return null;
+    
+    // Analyze all reports
+    const analyses = reports.map(report => ({
+      report,
+      analysis: analyzeReportRisk(report)
+    }));
+    
+    // Count high-risk cases
+    const highRiskCases = analyses.filter(a => a.analysis.riskLevel === 'high');
+    
+    if (highRiskCases.length === 0) {
+      console.log(`📊 CSV Upload: No HIGH RISK cases found in ${reports.length} reports`);
+      return null;
+    }
+    
+    console.log(`🚨 CSV Upload: ${highRiskCases.length} HIGH RISK cases detected!`);
+    
+    // Get location info from high-risk cases
+    const locations = highRiskCases
+      .map(c => c.report.lat && c.report.lng ? `(${c.report.lat.toFixed(4)}, ${c.report.lng.toFixed(4)})` : null)
+      .filter(Boolean);
+    const uniqueLocations = [...new Set(locations)];
+    const locationStr = uniqueLocations.slice(0, 3).join(', ') + 
+                       (uniqueLocations.length > 3 ? ` and ${uniqueLocations.length - 3} more` : '');
+    
+    // Calculate average confidence
+    const avgConfidence = highRiskCases.reduce((sum, c) => sum + c.analysis.confidence, 0) / highRiskCases.length;
+    
+    // Collect all symptoms from high-risk cases
+    const allSymptoms = highRiskCases
+      .flatMap(c => c.report.symptoms)
+      .filter((v, i, a) => a.indexOf(v) === i); // unique
+    
+    // Create prediction
+    const predictionData = {
+      predictionType: "Multiple Water-Borne Disease Cases Detected",
+      location: locationStr || "Multiple locations",
+      riskLevel: "high",
+      predictedDate: new Date(),
+      details: `URGENT ALERT: Bulk upload detected ${highRiskCases.length} HIGH RISK cases out of ${reports.length} total reports. ` +
+               `Critical symptoms reported: ${allSymptoms.slice(0, 5).join(', ')}${allSymptoms.length > 5 ? '...' : ''}. ` +
+               `This pattern suggests potential outbreak in progress. Immediate investigation required.`,
+      recommendations: [
+        `Investigate all ${highRiskCases.length} high-risk cases immediately`,
+        "Test water sources in affected areas",
+        "Issue water boil advisory for affected regions",
+        "Set up medical screening stations",
+        "Distribute bottled water and water purification supplies",
+        "Monitor for additional cases in the next 24-48 hours",
+        "Contact epidemiology team for outbreak assessment"
+      ],
+      confidence: Math.round(avgConfidence),
+      modelVersion: "csv-bulk-analyzer-v1.0",
+      lat: highRiskCases[0]?.report.lat,
+      lng: highRiskCases[0]?.report.lng,
+      metadata: {
+        uploadedBy: authenticatedUsername,
+        totalReports: reports.length,
+        highRiskCount: highRiskCases.length,
+        uploadTimestamp: new Date()
+      }
+    };
+    
+    // Save prediction
+    const prediction = await Prediction.create(predictionData);
+    console.log(`✅ Bulk upload prediction created: ${prediction._id}`);
+    
+    // Send email notification
+    console.log(`📧 Sending email alerts for bulk HIGH RISK detection...`);
+    const notificationResult = await notifyUsersOfPrediction(prediction);
+    
+    if (notificationResult.success && notificationResult.count > 0) {
+      console.log(`✅ Email alerts sent to ${notificationResult.count} users`);
+    }
+    
+    return {
+      prediction,
+      notification: notificationResult,
+      highRiskCount: highRiskCases.length
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error analyzing CSV reports:`, error);
+    return null;
+  }
+}
 
 /**
  * POST /upload/case-reports
@@ -143,15 +284,19 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
         try {
           // Insert all valid records into database
           let inserted = 0;
+          let insertedRecords = [];
           if (results.length > 0) {
-            const insertResult = await CaseReport.insertMany(results, { ordered: false });
-            inserted = insertResult.length;
+            insertedRecords = await CaseReport.insertMany(results, { ordered: false });
+            inserted = insertedRecords.length;
           }
+
+          // 🚨 NEW: Analyze uploaded reports for HIGH RISK cases
+          const analysisResult = await analyzeCSVReportsAndNotify(results, authenticatedUsername);
 
           // Delete the uploaded file after processing
           fs.unlinkSync(filePath);
 
-          res.json({
+          const response = {
             message: "CSV file processed successfully",
             summary: {
               totalRows: lineNumber - 1, // Excluding header
@@ -159,7 +304,19 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
               failed: errors.length,
             },
             errors: errors.length > 0 ? errors.slice(0, 10) : [], // Return first 10 errors
-          });
+          };
+
+          // Include notification info if HIGH RISK was detected
+          if (analysisResult) {
+            response.riskAlert = {
+              highRiskCases: analysisResult.highRiskCount,
+              emailsSent: analysisResult.notification?.count || 0,
+              predictionId: analysisResult.prediction?._id,
+              message: `🚨 ${analysisResult.highRiskCount} HIGH RISK cases detected - Email alerts sent to ${analysisResult.notification?.count || 0} users`
+            };
+          }
+
+          res.json(response);
         } catch (dbError) {
           console.error("Database error:", dbError);
           // Clean up file

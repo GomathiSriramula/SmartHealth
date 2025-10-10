@@ -109,6 +109,7 @@ async function sendBulkEmail(recipients, subject, text, html = null) {
 
 /**
  * Generate HTML email template for prediction notification
+ * Enhanced for HIGH RISK alerts with more prominent styling
  * @param {object} prediction - Prediction data
  * @returns {string} - HTML content
  */
@@ -120,14 +121,26 @@ function generatePredictionEmailHTML(prediction) {
     predictedDate = new Date().toISOString(),
     details = "A new prediction has been made.",
     recommendations = [],
+    confidence = null,
+    modelVersion = null,
   } = prediction;
 
+  const riskLevelLower = riskLevel.toLowerCase();
+  const isHighRisk = riskLevelLower === "high";
+  
   const riskColor =
-    riskLevel.toLowerCase() === "high"
+    riskLevelLower === "high"
       ? "#dc2626"
-      : riskLevel.toLowerCase() === "medium"
+      : riskLevelLower === "medium"
       ? "#f59e0b"
       : "#10b981";
+      
+  const riskBgColor =
+    riskLevelLower === "high"
+      ? "#fee2e2"
+      : riskLevelLower === "medium"
+      ? "#fef3c7"
+      : "#d1fae5";
 
   return `
 <!DOCTYPE html>
@@ -135,67 +148,108 @@ function generatePredictionEmailHTML(prediction) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartHealth Prediction Alert</title>
+    <title>SmartHealth ${isHighRisk ? 'URGENT' : ''} Alert</title>
 </head>
 <body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3f4f6;">
     <table role="presentation" style="width: 100%; border-collapse: collapse;">
         <tr>
             <td align="center" style="padding: 40px 0;">
-                <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                <table role="presentation" style="width: 600px; border-collapse: collapse; background-color: #ffffff; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); ${isHighRisk ? 'border: 3px solid ' + riskColor + ';' : ''}">
                     <!-- Header -->
                     <tr>
-                        <td style="padding: 40px 30px; background-color: #3b82f6; text-align: center;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 28px;">🏥 SmartHealth Alert</h1>
+                        <td style="padding: 40px 30px; background-color: ${isHighRisk ? riskColor : '#3b82f6'}; text-align: center;">
+                            ${isHighRisk ? '<h1 style="margin: 0 0 10px; color: #ffffff; font-size: 32px;">🚨 URGENT ALERT 🚨</h1>' : ''}
+                            <h${isHighRisk ? '2' : '1'} style="margin: 0; color: #ffffff; font-size: ${isHighRisk ? '24px' : '28px'};">🏥 SmartHealth Alert</h${isHighRisk ? '2' : '1'}>
                         </td>
                     </tr>
+                    
+                    ${isHighRisk ? `
+                    <!-- Urgent Banner -->
+                    <tr>
+                        <td style="padding: 20px 30px; background-color: ${riskBgColor}; border-bottom: 3px solid ${riskColor};">
+                            <p style="margin: 0; color: ${riskColor}; font-size: 16px; font-weight: bold; text-align: center;">
+                                ⚠️ IMMEDIATE ATTENTION REQUIRED ⚠️
+                            </p>
+                        </td>
+                    </tr>
+                    ` : ''}
                     
                     <!-- Content -->
                     <tr>
                         <td style="padding: 40px 30px;">
-                            <h2 style="margin: 0 0 20px; color: #1f2937; font-size: 24px;">New Prediction: ${predictionType}</h2>
+                            <h2 style="margin: 0 0 20px; color: #1f2937; font-size: 24px;">${isHighRisk ? '🚨 ' : ''}${predictionType}</h2>
                             
-                            <div style="background-color: #f9fafb; border-left: 4px solid ${riskColor}; padding: 20px; margin: 20px 0;">
+                            <div style="background-color: ${riskBgColor}; border-left: 6px solid ${riskColor}; padding: 20px; margin: 20px 0; ${isHighRisk ? 'box-shadow: 0 2px 8px rgba(220, 38, 38, 0.2);' : ''}">
                                 <p style="margin: 0 0 10px; color: #4b5563; font-size: 14px; font-weight: bold;">RISK LEVEL</p>
-                                <p style="margin: 0; color: ${riskColor}; font-size: 20px; font-weight: bold;">${riskLevel.toUpperCase()}</p>
+                                <p style="margin: 0; color: ${riskColor}; font-size: ${isHighRisk ? '28px' : '20px'}; font-weight: bold; ${isHighRisk ? 'text-transform: uppercase; letter-spacing: 2px;' : ''}">${riskLevel.toUpperCase()}</p>
+                                ${confidence ? `<p style="margin: 10px 0 0; color: #6b7280; font-size: 12px;">Confidence: ${confidence}%</p>` : ''}
                             </div>
                             
-                            <table style="width: 100%; margin: 20px 0;">
-                                <tr>
-                                    <td style="padding: 10px 0; color: #6b7280; font-size: 14px;">📍 Location:</td>
-                                    <td style="padding: 10px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${location}</td>
+                            <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
+                                <tr style="border-bottom: 1px solid #e5e7eb;">
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px; width: 140px;">📍 Location:</td>
+                                    <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${location}</td>
                                 </tr>
-                                <tr>
-                                    <td style="padding: 10px 0; color: #6b7280; font-size: 14px;">📅 Predicted Date:</td>
-                                    <td style="padding: 10px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${new Date(
+                                <tr style="border-bottom: 1px solid #e5e7eb;">
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📅 Predicted Date:</td>
+                                    <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${new Date(
                                       predictedDate
-                                    ).toLocaleString()}</td>
+                                    ).toLocaleString('en-US', { 
+                                      weekday: 'long', 
+                                      year: 'numeric', 
+                                      month: 'long', 
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}</td>
                                 </tr>
+                                ${confidence ? `
+                                <tr style="border-bottom: 1px solid #e5e7eb;">
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📊 Confidence:</td>
+                                    <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${confidence}%</td>
+                                </tr>
+                                ` : ''}
+                                ${modelVersion ? `
+                                <tr>
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">🤖 Model Version:</td>
+                                    <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${modelVersion}</td>
+                                </tr>
+                                ` : ''}
                             </table>
                             
-                            <div style="margin: 30px 0;">
-                                <h3 style="margin: 0 0 15px; color: #1f2937; font-size: 18px;">Details</h3>
+                            <div style="margin: 30px 0; padding: 20px; background-color: #f9fafb; border-radius: 8px;">
+                                <h3 style="margin: 0 0 15px; color: #1f2937; font-size: 18px;">📋 Details</h3>
                                 <p style="margin: 0; color: #4b5563; font-size: 14px; line-height: 1.6;">${details}</p>
                             </div>
                             
                             ${
                               recommendations.length > 0
                                 ? `
-                            <div style="margin: 30px 0;">
-                                <h3 style="margin: 0 0 15px; color: #1f2937; font-size: 18px;">Recommendations</h3>
-                                <ul style="margin: 0; padding-left: 20px; color: #4b5563; font-size: 14px; line-height: 1.6;">
-                                    ${recommendations.map((rec) => `<li style="margin: 8px 0;">${rec}</li>`).join("")}
+                            <div style="margin: 30px 0; padding: 20px; background-color: ${isHighRisk ? riskBgColor : '#f0fdf4'}; border-radius: 8px; border: 2px solid ${isHighRisk ? riskColor : '#10b981'};">
+                                <h3 style="margin: 0 0 15px; color: ${isHighRisk ? riskColor : '#059669'}; font-size: 18px;">${isHighRisk ? '⚠️' : '✓'} ${isHighRisk ? 'URGENT' : ''} Recommendations</h3>
+                                <ul style="margin: 0; padding-left: 20px; color: #4b5563; font-size: 14px; line-height: 1.8;">
+                                    ${recommendations.map((rec) => `<li style="margin: 10px 0;"><strong>${rec}</strong></li>`).join("")}
                                 </ul>
                             </div>
                             `
                                 : ""
                             }
                             
+                            ${isHighRisk ? `
+                            <div style="margin: 30px 0; padding: 15px; background-color: #fff7ed; border-left: 4px solid #f59e0b; border-radius: 4px;">
+                                <p style="margin: 0; color: #92400e; font-size: 13px; line-height: 1.6;">
+                                    <strong>⏰ Time Sensitive:</strong> This is a high-risk alert that requires immediate attention. 
+                                    Please review the recommendations and take appropriate action as soon as possible.
+                                </p>
+                            </div>
+                            ` : ''}
+                            
                             <div style="margin: 30px 0; text-align: center;">
                                 <a href="${
                                   process.env.FRONTEND_URL || "http://localhost:5173"
-                                }" 
-                                   style="display: inline-block; padding: 12px 30px; background-color: #3b82f6; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: bold;">
-                                    View Dashboard
+                                }/predictions" 
+                                   style="display: inline-block; padding: ${isHighRisk ? '16px 40px' : '12px 30px'}; background-color: ${isHighRisk ? riskColor : '#3b82f6'}; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: ${isHighRisk ? '18px' : '16px'}; font-weight: bold; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+                                    ${isHighRisk ? '🔍 View Alert Details' : 'View Dashboard'}
                                 </a>
                             </div>
                         </td>
@@ -205,10 +259,13 @@ function generatePredictionEmailHTML(prediction) {
                     <tr>
                         <td style="padding: 30px; background-color: #f9fafb; text-align: center; border-top: 1px solid #e5e7eb;">
                             <p style="margin: 0 0 10px; color: #6b7280; font-size: 12px;">
-                                This is an automated notification from SmartHealth System
+                                ${isHighRisk ? '🚨 This is an urgent automated notification from SmartHealth System' : 'This is an automated notification from SmartHealth System'}
                             </p>
-                            <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                            <p style="margin: 0 0 5px; color: #9ca3af; font-size: 12px;">
                                 © ${new Date().getFullYear()} SmartHealth. All rights reserved.
+                            </p>
+                            <p style="margin: 5px 0 0; color: #9ca3af; font-size: 11px;">
+                                You received this email because you are registered in the SmartHealth monitoring system.
                             </p>
                         </td>
                     </tr>
@@ -264,12 +321,27 @@ ${details}
 
 /**
  * Send prediction notification to all registered users with emails
+ * ONLY for HIGH RISK predictions
  * @param {object} prediction - Prediction data
+ * @param {boolean} forceNotify - Force notification even if not high risk (default: false)
  * @returns {Promise<object>} - Result object
  */
-async function notifyUsersOfPrediction(prediction) {
+async function notifyUsersOfPrediction(prediction, forceNotify = false) {
   try {
     const { User } = require("../models");
+    
+    // 🔑 Only send emails for HIGH RISK predictions (unless forced)
+    const isHighRisk = prediction.riskLevel && prediction.riskLevel.toLowerCase() === "high";
+    
+    if (!isHighRisk && !forceNotify) {
+      console.log(`⚠️  Prediction risk level is '${prediction.riskLevel}' - skipping email notification (only HIGH RISK triggers emails)`);
+      return { 
+        success: true, 
+        message: "Notification skipped - not high risk", 
+        count: 0,
+        riskLevel: prediction.riskLevel 
+      };
+    }
     
     // Get all users with valid email addresses
     const users = await User.find({ email: { $exists: true, $ne: null, $ne: "" } });
@@ -286,19 +358,46 @@ async function notifyUsersOfPrediction(prediction) {
       return { success: true, message: "No valid emails", count: 0 };
     }
 
-    const subject = `SmartHealth Alert: New ${prediction.predictionType || "Prediction"}`;
+    console.log(`🚨 HIGH RISK ALERT: Sending notifications to ${emails.length} users`);
+
+    const subject = `🚨 URGENT: High Risk ${prediction.predictionType || "Health Alert"} Detected`;
     const text = generatePredictionEmailText(prediction);
     const html = generatePredictionEmailHTML(prediction);
 
-    await sendBulkEmail(emails, subject, text, html);
-
-    return {
-      success: true,
-      message: `Notification sent to ${emails.length} users`,
-      count: emails.length,
-    };
+    // Retry mechanism for email sending
+    let lastError = null;
+    const maxRetries = 3;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await sendBulkEmail(emails, subject, text, html);
+        console.log(`✅ Email notifications sent successfully on attempt ${attempt}`);
+        
+        return {
+          success: true,
+          message: `High risk notification sent to ${emails.length} users`,
+          count: emails.length,
+          riskLevel: prediction.riskLevel,
+          attempt,
+        };
+      } catch (error) {
+        lastError = error;
+        console.error(`❌ Email send attempt ${attempt} failed:`, error.message);
+        
+        if (attempt < maxRetries) {
+          // Wait before retry (exponential backoff)
+          const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          console.log(`⏳ Retrying in ${waitTime / 1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+    
+    // All retries failed
+    throw new Error(`Failed to send emails after ${maxRetries} attempts: ${lastError.message}`);
+    
   } catch (error) {
-    console.error("Error notifying users:", error.message);
+    console.error("❌ Error notifying users:", error.message);
     throw error;
   }
 }
