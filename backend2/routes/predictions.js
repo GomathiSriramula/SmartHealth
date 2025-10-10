@@ -275,4 +275,157 @@ router.delete("/predictions/:id", async (req, res) => {
   }
 });
 
+/**
+ * GET /analytics
+ * Get comprehensive analytics data for predictions
+ * Includes risk level distribution, trends over time, location hotspots, etc.
+ */
+router.get("/analytics", async (req, res) => {
+  try {
+    const { timeRange = "30" } = req.query; // Default to last 30 days
+    
+    // Calculate date range
+    const daysAgo = parseInt(timeRange) || 30;
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysAgo);
+    
+    // Get all predictions within the time range
+    const predictions = await Prediction.find({
+      predictedDate: { $gte: startDate }
+    }).sort({ predictedDate: -1 });
+    
+    const allPredictions = await Prediction.find({});
+    
+    // Risk Level Distribution
+    const riskDistribution = {
+      high: predictions.filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'high').length,
+      medium: predictions.filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'medium').length,
+      low: predictions.filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'low').length,
+    };
+    
+    // Total counts
+    const totalPredictions = allPredictions.length;
+    const recentPredictions = predictions.length;
+    
+    // Average confidence
+    const predictionsWithConfidence = predictions.filter(p => p.confidence);
+    const averageConfidence = predictionsWithConfidence.length > 0
+      ? predictionsWithConfidence.reduce((sum, p) => sum + p.confidence, 0) / predictionsWithConfidence.length
+      : 0;
+    
+    // Predictions by type
+    const predictionTypes = {};
+    predictions.forEach(p => {
+      const type = p.predictionType || 'Unknown';
+      predictionTypes[type] = (predictionTypes[type] || 0) + 1;
+    });
+    
+    // Time series data (predictions per day)
+    const timeSeriesData = [];
+    const dailyData = {};
+    
+    predictions.forEach(p => {
+      const date = new Date(p.predictedDate).toISOString().split('T')[0];
+      if (!dailyData[date]) {
+        dailyData[date] = { date, high: 0, medium: 0, low: 0, total: 0 };
+      }
+      const risk = (p.riskLevel || 'low').toLowerCase();
+      dailyData[date][risk]++;
+      dailyData[date].total++;
+    });
+    
+    // Fill in missing dates with zeros
+    for (let i = daysAgo - 1; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      if (!dailyData[dateStr]) {
+        dailyData[dateStr] = { date: dateStr, high: 0, medium: 0, low: 0, total: 0 };
+      }
+    }
+    
+    // Sort by date
+    const sortedDates = Object.keys(dailyData).sort();
+    sortedDates.forEach(date => {
+      timeSeriesData.push(dailyData[date]);
+    });
+    
+    // Location hotspots (top 10 locations)
+    const locationCounts = {};
+    predictions.forEach(p => {
+      if (p.location) {
+        locationCounts[p.location] = (locationCounts[p.location] || 0) + 1;
+      }
+    });
+    
+    const topLocations = Object.entries(locationCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([location, count]) => ({ location, count }));
+    
+    // Recent high-risk predictions
+    const recentHighRisk = predictions
+      .filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'high')
+      .slice(0, 5)
+      .map(p => ({
+        id: p._id,
+        type: p.predictionType,
+        location: p.location,
+        confidence: p.confidence,
+        date: p.predictedDate,
+        details: p.details
+      }));
+    
+    // Confidence distribution
+    const confidenceRanges = {
+      '0-20': 0,
+      '21-40': 0,
+      '41-60': 0,
+      '61-80': 0,
+      '81-100': 0
+    };
+    
+    predictionsWithConfidence.forEach(p => {
+      const conf = p.confidence;
+      if (conf <= 20) confidenceRanges['0-20']++;
+      else if (conf <= 40) confidenceRanges['21-40']++;
+      else if (conf <= 60) confidenceRanges['41-60']++;
+      else if (conf <= 80) confidenceRanges['61-80']++;
+      else confidenceRanges['81-100']++;
+    });
+    
+    // Model versions usage
+    const modelVersions = {};
+    predictions.forEach(p => {
+      if (p.modelVersion) {
+        modelVersions[p.modelVersion] = (modelVersions[p.modelVersion] || 0) + 1;
+      }
+    });
+    
+    return res.json({
+      summary: {
+        totalPredictions,
+        recentPredictions,
+        averageConfidence: Math.round(averageConfidence * 100) / 100,
+        timeRange: `Last ${daysAgo} days`,
+        lastUpdated: new Date().toISOString()
+      },
+      riskDistribution,
+      predictionTypes,
+      timeSeriesData,
+      topLocations,
+      recentHighRisk,
+      confidenceDistribution: confidenceRanges,
+      modelVersions
+    });
+    
+  } catch (error) {
+    console.error("Error fetching analytics:", error.message);
+    return res.status(500).json({
+      error: "Failed to fetch analytics",
+      detail: error.message,
+    });
+  }
+});
+
 module.exports = router;

@@ -5,6 +5,7 @@ import StatsCard from "./StatsCard";
 import Navigation from "./Navigation";
 import { CSVUpload } from "./CSVUpload";
 import { PredictionsDashboard } from "./PredictionsDashboard";
+import Analytics from "./Analytics";
 
 interface Report {
   _id?: string;
@@ -1218,6 +1219,11 @@ const Dashboard: React.FC<DashboardProps> = ({
               token={token} 
               onUploadSuccess={() => fetchReports(false)}
             />
+          )}
+
+          {/* Analytics Tab */}
+          {activeTab === "analytics" && (
+            <Analytics token={token} />
           )}
 
           {/* ML Predictions Tab */}
