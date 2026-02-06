@@ -37,10 +37,10 @@ router.post("/auth/register", async (req, res) => {
 // Login
 router.post("/auth/login", async (req, res) => {
   try {
-    const { username, password } = req.body;
-    if (!username || !password)
-      return res.status(400).json({ error: "username and password required" });
-    const user = await User.findOne({ username });
+    const { email, password } = req.body;
+    if (!email || !password)
+      return res.status(400).json({ error: "email and password required" });
+    const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: "invalid credentials" });
     const ok = await verifyPassword(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: "invalid credentials" });

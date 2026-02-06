@@ -1,53 +1,166 @@
-# 🎉 Authentication Implementation Complete!
+# SmartHealth - Quick Start Guide (v1.0)
 
-## ✅ What's Been Implemented
+## 🚀 Start Services in 5 Minutes
 
-### Backend (FastAPI)
-- ✅ User model with email, username, password, and admin roles
-- ✅ JWT-based authentication
-- ✅ Password hashing with bcrypt
-- ✅ Registration endpoint (`/api/auth/register`)
-- ✅ Login endpoint (`/api/auth/login/json`)
-- ✅ Get current user endpoint (`/api/auth/me`)
-- ✅ Logout endpoint (`/api/auth/logout`)
-- ✅ Protected route dependencies
-- ✅ Database tables created
+### Prerequisites
+- Python 3.8+
+- Node.js 14+
+- MongoDB running
+- Ports 5000, 5001, 5173 available
 
-### Frontend (React + TypeScript)
-- ✅ Authentication Context with React Context API
-- ✅ Login component with form validation
-- ✅ Register component with password confirmation
-- ✅ Token storage in localStorage
-- ✅ Navigation with user info and logout button
-- ✅ Automatic token management
-- ✅ Protected dashboard access
+### Option 1: Automated Startup (Windows)
+```bash
+START_ALL_SERVICES.bat
+```
+This will:
+1. ✅ Train ML model
+2. ✅ Start Flask service (port 5001)
+3. ✅ Start Node backend (port 5000)
+4. ✅ Start frontend (port 5173)
 
-### Database
-- ✅ Users table created
-- ✅ Test users created
+### Option 2: Manual Startup (3 terminals)
 
-## 🚀 Quick Start
+**Terminal 1 - ML Service:**
+```bash
+cd ml_model
+python ml_pipeline.py    # First time only - trains model
+python ml_service.py     # Start Flask service
+```
 
-### Test Credentials
-You can login with these accounts:
+**Terminal 2 - Backend:**
+```bash
+cd backend2
+npm install              # First time only
+npm start
+```
 
-**Admin User:**
-- Username: `admin`
-- Password: `admin123`
-- Email: admin@smarthealth.com
+**Terminal 3 - Frontend:**
+```bash
+cd frontend
+npm install              # First time only
+npm run dev
+```
 
-**Regular User:**
-- Username: `testuser`
-- Password: `test123`
-- Email: test@smarthealth.com
+## 🌐 Access Dashboard
+- **Dashboard:** http://localhost:5173
+- **API:** http://localhost:5000
+- **ML Service:** http://localhost:5001
 
-### Running the Application
+## 🧪 Test the System
 
-1. **Start Backend** (Already running on http://127.0.0.1:8000)
-   ```powershell
-   cd backend
-   python -m uvicorn app.main:app --reload --port 8000
-   ```
+### Run Integration Tests
+```bash
+python test_integration.py
+```
+
+### Run IoT Sensor Simulator
+```bash
+python ml_model/sensor_simulator.py
+```
+
+## 📊 Make a Prediction
+
+### Using curl:
+```bash
+curl -X POST http://localhost:5000/ml-predictions/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pH": 7.2,
+    "Turbidity": 5.0,
+    "Dissolved_Oxygen": 8.5,
+    "location": "Test Plant"
+  }'
+```
+
+### Response:
+```json
+{
+  "success": true,
+  "prediction": {
+    "id": "...",
+    "riskLevel": "low",
+    "confidence": 92,
+    "recommendations": [...]
+  }
+}
+```
+
+## 📢 Check Alerts
+```bash
+curl http://localhost:5000/alerts/active
+```
+
+## 🆘 Troubleshooting
+
+### ML Service won't start
+```bash
+cd ml_model
+python ml_pipeline.py  # Ensure model is trained first
+```
+
+### Backend won't connect
+```bash
+# Check MongoDB is running
+# Verify ports: netstat -ano | findstr ":5000 :5001"
+# Kill existing processes: taskkill /PID <PID> /F
+```
+
+### No predictions being made
+- Check ML service is running: `curl http://localhost:5001/health`
+- Check backend logs for errors
+- Verify MongoDB connection
+
+## 🔑 Key Endpoints
+
+**Predictions:**
+- `POST /ml-predictions/predict` - Single prediction
+- `POST /ml-predictions/batch` - Batch predictions
+- `GET /ml-predictions` - List predictions
+- `GET /ml-predictions/stats/summary` - Statistics
+
+**Alerts:**
+- `GET /alerts/active` - Active alerts
+- `GET /alerts/stats` - Alert statistics
+- `POST /alerts/{id}/acknowledge` - Mark reviewed
+- `POST /alerts/{id}/resolve` - Mark resolved
+
+## 🎯 Next Steps
+
+1. ✅ Start services
+2. ✅ Run tests
+3. ✅ Send predictions
+4. ✅ Monitor dashboard
+5. ✅ View alerts
+6. ✅ Run sensor simulator for continuous data
+
+## 📞 Support
+
+For detailed documentation, see the guides in the root directory.
+
+---
+
+**Quick Command Reference:**
+
+```bash
+# Terminal 1 - ML
+cd ml_model && python ml_service.py
+
+# Terminal 2 - Backend  
+cd backend2 && npm start
+
+# Terminal 3 - Frontend
+cd frontend && npm run dev
+
+# Terminal 4 - Tests/Simulator
+python test_integration.py
+python ml_model/sensor_simulator.py
+```
+
+---
+
+**Project Status:** ✅ Production Ready (v1.0)
+
+That's it! Dashboard should be live at http://localhost:5173 ✨
 
 2. **Start Frontend**
    ```powershell

@@ -9,6 +9,15 @@ const sensorsRouter = require("./routes/sensors");
 const authRouter = require("./routes/auth");
 const predictionsRouter = require("./routes/predictions");
 const uploadsRouter = require("./routes/uploads");
+const mlRouter = require("./routes/ml");
+const mlPredictionsRouter = require("./routes/mlPredictions");
+const alertsRouter = require("./routes/alerts");
+const predictionsApiRouter = require("./routes/predictionsApi");
+const alertsApiRouter = require("./routes/alertsApi");
+
+// Initialize alert manager after mlPredictions router is loaded (which defines MLAlert model)
+const { initializeAlertModel } = require("./utils/alertManager");
+initializeAlertModel();
 
 const app = express();
 
@@ -32,11 +41,44 @@ app.use(
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));
 
+// Health check endpoint
+const mlClient = require('./services/mlClient');
+
+app.get('/health', async (req, res) => {
+  try {
+    const mongoConnected = mongoose.connection.readyState === 1;
+    const mlHealth = await mlClient.checkHealth();
+
+    const status = mongoConnected && mlHealth.healthy ? 'healthy' : 'degraded';
+    const statusCode = status === 'healthy' ? 200 : 503;
+
+    return res.status(statusCode).json({
+      status,
+      timestamp: new Date().toISOString(),
+      services: {
+        mongodb: mongoConnected ? 'connected' : 'disconnected',
+        ml_service: mlHealth.healthy ? 'connected' : 'disconnected'
+      },
+      ml_service_details: mlHealth.data
+    });
+  } catch (error) {
+    return res.status(503).json({
+      status: 'unhealthy',
+      error: error.message
+    });
+  }
+});
+
 app.use("/", reportsRouter);
 app.use("/", sensorsRouter);
 app.use("/", authRouter);
 app.use("/", predictionsRouter);
 app.use("/", uploadsRouter);
+app.use("/", mlRouter);
+app.use("/ml-predictions", mlPredictionsRouter);
+app.use("/alerts", alertsRouter);
+app.use("/api", predictionsApiRouter);
+app.use("/api", alertsApiRouter);
 
 // Force the ingestion API to listen on port 5000 as requested
 const PORT = 5000;

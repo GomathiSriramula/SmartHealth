@@ -7,7 +7,7 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -23,7 +23,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
       const res = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
@@ -32,7 +32,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
       }
 
       const data = await res.json();
-      onLoginSuccess(data.token, username);
+      onLoginSuccess(data.token, email);
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {
@@ -72,14 +72,14 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
+              Email
             </label>
             <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter your username"
+              placeholder="Enter your email"
               required
               disabled={loading}
             />
