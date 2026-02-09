@@ -8,6 +8,7 @@ const CaseReportSchema = new mongoose.Schema(
     sex: { type: String, required: true, enum: ["M", "F", "O"] },
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
+    location: { type: String, required: false },
     symptoms: { type: [String], required: true },
     reported_at: { type: Date, required: true },
   },
@@ -27,6 +28,26 @@ const SensorReadingSchema = new mongoose.Schema(
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
 
+const PredictionSchema = new mongoose.Schema(
+  {
+    predictionType: { type: String, required: true },
+    location: { type: String, required: false },
+    riskLevel: {
+      type: String,
+      enum: ["low", "medium", "high", "Low", "Medium", "High"],
+      required: true,
+    },
+    predictedDate: { type: Date, required: true, default: Date.now },
+    details: { type: String, required: true },
+    recommendations: { type: [String], default: [] },
+    modelVersion: { type: String, required: false },
+    confidence: { type: Number, required: false, min: 0, max: 100 },
+    lat: { type: Number, required: false },
+    lng: { type: Number, required: false },
+  },
+  { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
+);
+
 const CaseReport = mongoose.model(
   "CaseReport",
   CaseReportSchema,
@@ -38,6 +59,13 @@ const SensorReading = mongoose.model(
   "sensor_readings"
 );
 
+let Prediction;
+try {
+  Prediction = mongoose.model("Prediction");
+} catch (error) {
+  Prediction = mongoose.model("Prediction", PredictionSchema, "predictions");
+}
+
 const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
@@ -47,4 +75,4 @@ const UserSchema = new mongoose.Schema({
 
 const User = mongoose.model("User", UserSchema, "users");
 
-module.exports = { CaseReport, SensorReading, User };
+module.exports = { CaseReport, SensorReading, Prediction, User };

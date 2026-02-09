@@ -29,6 +29,16 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
+interface AlertData {
+  _id: string;
+  location: string;
+  riskLevel: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+  notificationSent: boolean;
+}
+
 const Dashboard: React.FC<DashboardProps> = ({
   onBackToLanding,
   token,
@@ -49,6 +59,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   });
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  
+  // Alerts state
+  const [alerts, setAlerts] = useState<AlertData[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertStats, setAlertStats] = useState({ total: 0, active: 0, resolved: 0 });
+  const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
   const API_URL = "http://127.0.0.1:5000";
 
@@ -89,10 +106,103 @@ const Dashboard: React.FC<DashboardProps> = ({
     fetchReports();
   }, [username]);
 
-  // Debug: Log when reports state changes
+  // Fetch alerts from backend
+  const fetchAlerts = async () => {
+    setAlertsLoading(true);
+    try {
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(`${API_URL}/api/alerts?status=all&limit=50`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setAlerts(data.alerts || []);
+      }
+
+      // Fetch stats
+      const statsRes = await fetch(`${API_URL}/api/alerts/stats/summary`, { headers });
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        setAlertStats({
+          total: statsData.stats?.totalAlerts || 0,
+          active: statsData.stats?.activeAlerts || 0,
+          resolved: statsData.stats?.resolvedAlerts || 0,
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching alerts:', err);
+    } finally {
+      setAlertsLoading(false);
+    }
+  };
+
+  // Resolve alert
+  const resolveAlert = async (alertId: string) => {
+    setActionInProgress(alertId);
+    try {
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(`${API_URL}/api/alerts/${alertId}/resolve`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ reason: "Manually resolved" }),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        setAlerts(prev => prev.map(a => a._id === alertId ? result.alert : a));
+        fetchAlerts(); // Refresh stats
+      }
+    } catch (err) {
+      console.error('Error resolving alert:', err);
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  // Resend notification
+  const resendNotification = async (alertId: string) => {
+    setActionInProgress(alertId);
+    try {
+      const headers: HeadersInit = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const res = await fetch(`${API_URL}/api/alerts/${alertId}/notify`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({}),
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        setAlerts(prev => prev.map(a => a._id === alertId ? result.alert : a));
+      }
+    } catch (err) {
+      console.error('Error sending notification:', err);
+    } finally {
+      setActionInProgress(null);
+    }
+  };
+
+  const toggleExpandAlert = (alertId: string) => {
+    const newExpanded = new Set(expandedAlerts);
+    if (newExpanded.has(alertId)) {
+      newExpanded.delete(alertId);
+    } else {
+      newExpanded.add(alertId);
+    }
+    setExpandedAlerts(newExpanded);
+  };
+
+  // Load alerts when alerts tab is opened
   useEffect(() => {
-    console.log('📊 Reports state updated. Total count:', reports.length);
-  }, [reports]);
+    if (activeTab === "alerts") {
+      fetchAlerts();
+      const interval = setInterval(fetchAlerts, 30000); // Refresh every 30s
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, token]);
 
   // Submit new report
   const handleSubmit = async (e: React.FormEvent) => {
@@ -976,124 +1086,117 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </p>
               </div>
 
-              <div className="grid gap-4">
-                {/* Critical Alert */}
-                <div className="bg-red-50 border border-red-200 rounded-xl p-6">
-                  <div className="flex items-start space-x-4">
-                    <div className="p-2 bg-red-100 rounded-lg">
-                      <svg
-                        className="w-6 h-6 text-red-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
-                        ></path>
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-red-800">
-                        Critical: Cholera Outbreak Risk
-                      </h3>
-                      <p className="text-red-700 mb-2">
-                        Multiple cases with severe symptoms detected in Ward 15
-                      </p>
-                      <div className="flex items-center space-x-4 text-sm text-red-600">
-                        <span>Affected: 12 cases</span>
-                        <span>•</span>
-                        <span>Risk Level: High</span>
-                        <span>•</span>
-                        <span>2 hours ago</span>
-                      </div>
-                    </div>
-                    <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
-                      Action Required
-                    </button>
-                  </div>
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                  <div className="text-sm font-semibold text-red-700">Active</div>
+                  <div className="text-3xl font-bold text-red-600">{alertStats.active}</div>
                 </div>
-
-                {/* Warning Alert */}
-                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
-                  <div className="flex items-start space-x-4">
-                    <div className="p-2 bg-yellow-100 rounded-lg">
-                      <svg
-                        className="w-6 h-6 text-yellow-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        ></path>
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-yellow-800">
-                        Warning: Water Quality Drop
-                      </h3>
-                      <p className="text-yellow-700 mb-2">
-                        Contamination levels elevated in Sector B water supply
-                      </p>
-                      <div className="flex items-center space-x-4 text-sm text-yellow-600">
-                        <span>pH: 6.2</span>
-                        <span>•</span>
-                        <span>Turbidity: High</span>
-                        <span>•</span>
-                        <span>4 hours ago</span>
-                      </div>
-                    </div>
-                    <button className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors">
-                      Investigate
-                    </button>
-                  </div>
+                <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                  <div className="text-sm font-semibold text-blue-700">Total</div>
+                  <div className="text-3xl font-bold text-blue-600">{alertStats.total}</div>
                 </div>
-
-                {/* Info Alert */}
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                  <div className="flex items-start space-x-4">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <svg
-                        className="w-6 h-6 text-blue-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        ></path>
-                      </svg>
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-blue-800">
-                        Info: Preventive Campaign Scheduled
-                      </h3>
-                      <p className="text-blue-700 mb-2">
-                        Health awareness drive planned for high-risk areas
-                      </p>
-                      <div className="flex items-center space-x-4 text-sm text-blue-600">
-                        <span>Date: Tomorrow</span>
-                        <span>•</span>
-                        <span>Coverage: 5 villages</span>
-                        <span>•</span>
-                        <span>1 day ago</span>
-                      </div>
-                    </div>
-                    <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                      View Details
-                    </button>
-                  </div>
+                <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+                  <div className="text-sm font-semibold text-green-700">Resolved</div>
+                  <div className="text-3xl font-bold text-green-600">{alertStats.resolved}</div>
                 </div>
               </div>
+
+              {/* Alerts List */}
+              <div className="grid gap-4">
+                {alertsLoading ? (
+                  <LoadingSpinner />
+                ) : alerts.length === 0 ? (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+                    <p className="text-green-700 font-semibold">✅ No Active Alerts</p>
+                    <p className="text-green-600">Water quality is normal and no disease outbreaks detected</p>
+                  </div>
+                ) : (
+                  alerts.map((alert) => {
+                    const bgColor = alert.riskLevel === "HIGH" ? "bg-red-50 border-red-200" 
+                                  : alert.riskLevel === "MEDIUM" ? "bg-yellow-50 border-yellow-200"
+                                  : "bg-green-50 border-green-200";
+                    const textColor = alert.riskLevel === "HIGH" ? "text-red-800"
+                                    : alert.riskLevel === "MEDIUM" ? "text-yellow-800"
+                                    : "text-green-800";
+                    const iconColor = alert.riskLevel === "HIGH" ? "text-red-600"
+                                    : alert.riskLevel === "MEDIUM" ? "text-yellow-600"
+                                    : "text-green-600";
+                    const bgIconColor = alert.riskLevel === "HIGH" ? "bg-red-100"
+                                      : alert.riskLevel === "MEDIUM" ? "bg-yellow-100"
+                                      : "bg-green-100";
+
+                    return (
+                      <div key={alert._id} className={`border rounded-xl p-6 ${bgColor} border`}>
+                        <div className="flex items-start space-x-4">
+                          <div className={`p-2 ${bgIconColor} rounded-lg`}>
+                            <svg className={`w-6 h-6 ${iconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1">
+                            <h3 className={`text-lg font-semibold ${textColor}`}>
+                              {alert.riskLevel === "HIGH" ? "Critical: " : alert.riskLevel === "MEDIUM" ? "Warning: " : "Info: "}
+                              {alert.location}
+                            </h3>
+                            <p className={textColor.replace("800", "700")}>{alert.reason}</p>
+                            <div className="flex items-center space-x-4 text-sm mt-2">
+                              <span className={textColor.replace("800", "600")}>Status: {alert.status.toUpperCase()}</span>
+                              <span className={textColor.replace("800", "600")}>•</span>
+                              <span className={textColor.replace("800", "600")}>{new Date(alert.createdAt).toLocaleDateString()}</span>
+                              {alert.notificationSent && <span className="text-blue-600">📧 Notified</span>}
+                            </div>
+
+                            {/* Expanded Details */}
+                            {expandedAlerts.has(alert._id) && (
+                              <div className="mt-4 pt-4 border-t border-current border-opacity-20">
+                                <p className="text-sm mb-3"><strong>Alert ID:</strong> {alert._id.slice(0, 12)}...</p>
+                                <div className="flex gap-2 flex-wrap">
+                                  {alert.status === "active" && (
+                                    <button
+                                      onClick={() => resolveAlert(alert._id)}
+                                      disabled={actionInProgress === alert._id}
+                                      className={`px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50`}
+                                    >
+                                      {actionInProgress === alert._id ? "Processing..." : "✅ Resolve"}
+                                    </button>
+                                  )}
+                                  {!alert.notificationSent && (
+                                    <button
+                                      onClick={() => resendNotification(alert._id)}
+                                      disabled={actionInProgress === alert._id}
+                                      className={`px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50`}
+                                    >
+                                      {actionInProgress === alert._id ? "Sending..." : "📧 Send Alert"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              onClick={() => toggleExpandAlert(alert._id)}
+                              className={`px-4 py-2 ${alert.riskLevel === "HIGH" ? "bg-red-600 hover:bg-red-700" : alert.riskLevel === "MEDIUM" ? "bg-yellow-600 hover:bg-yellow-700" : "bg-blue-600 hover:bg-blue-700"} text-white rounded-lg transition-colors text-sm`}
+                            >
+                              {expandedAlerts.has(alert._id) ? "▼ Hide" : "▶ Details"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Refresh Button */}
+              <button
+                onClick={fetchAlerts}
+                disabled={alertsLoading}
+                className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                🔄 {alertsLoading ? "Loading..." : "Refresh Alerts"}
+              </button>
             </div>
           )}
 

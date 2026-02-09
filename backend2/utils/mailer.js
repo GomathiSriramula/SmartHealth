@@ -402,10 +402,252 @@ async function notifyUsersOfPrediction(prediction, forceNotify = false) {
   }
 }
 
+/**
+ * Send alert notification to all health officials
+ * Triggered when a new alert is created (2+ consecutive HIGH predictions)
+ * 
+ * @param {object} alert - Alert document from MongoDB
+ * @returns {Promise<object>} - Result object with success status
+ */
+async function notifyAlertCreation(alert) {
+  try {
+    // Validate alert
+    if (!alert || !alert._id || !alert.location) {
+      console.log(`📧 [Alert Notification] Invalid alert object, skipping notification`);
+      return {
+        success: false,
+        message: "Invalid alert data",
+        count: 0,
+      };
+    }
+
+    // Check if already notified (prevent duplicates)
+    if (alert.notificationSent) {
+      console.log(`📧 [Alert Notification] Alert ${alert._id} already notified, skipping`);
+      return {
+        success: true,
+        message: "Alert already notified",
+        count: 0,
+        alertId: alert._id,
+      };
+    }
+
+    // Get all health officials/admin users
+    const { User } = require("../models");
+    const users = await User.find({ email: { $exists: true, $ne: null, $ne: "" } });
+
+    if (users.length === 0) {
+      console.log(`📧 [Alert Notification] No users found to notify for alert ${alert._id}`);
+      return {
+        success: true,
+        message: "No users to notify",
+        count: 0,
+        alertId: alert._id,
+      };
+    }
+
+    const recipients = users.map((u) => u.email).filter(Boolean);
+    if (recipients.length === 0) {
+      console.log(`📧 [Alert Notification] No valid email addresses found`);
+      return {
+        success: true,
+        message: "No valid emails",
+        count: 0,
+        alertId: alert._id,
+      };
+    }
+
+    // Format alert details
+    const timestamp = alert.createdAt
+      ? new Date(alert.createdAt).toLocaleString("en-US", {
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : new Date().toLocaleString();
+
+    // Build simple email content
+    const subject = `🚨 ALERT: Water-Borne Disease OUTBREAK - ${alert.location}`;
+
+    const textBody = `
+WATER-BORNE DISEASE OUTBREAK ALERT
+
+Location: ${alert.location}
+Risk Level: ${alert.riskLevel || "HIGH"}
+Alert ID: ${alert._id}
+Detected: ${timestamp}
+
+DETAILS:
+${alert.reason || "2 consecutive HIGH risk predictions detected"}
+
+Number of triggering predictions: ${
+      alert.triggeringPredictions ? alert.triggeringPredictions.length : 0
+    }
+
+RECOMMENDED ACTIONS:
+1. Immediately assess the situation in ${alert.location}
+2. Test water source for contaminants
+3. Alert local health authorities
+4. Implement water safety measures
+5. Monitor for additional cases
+6. Update crisis response team
+
+---
+This is an automated alert from SmartHealth System.
+Alert Status: ${alert.status}
+`;
+
+    const htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; background: #fff; }
+    .header { background: #dc2626; color: white; padding: 30px; text-align: center; }
+    .header h1 { margin: 0; font-size: 28px; }
+    .content { padding: 30px; border: 1px solid #e5e7eb; }
+    .alert-info { background: #fee2e2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; }
+    .label { font-weight: bold; color: #374151; margin-top: 15px; }
+    .value { color: #6b7280; margin-top: 5px; }
+    .recommendations { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
+    .recommendations ol { margin: 10px 0; padding-left: 20px; }
+    .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🚨 OUTBREAK ALERT 🚨</h1>
+      <p style="margin: 10px 0; font-size: 16px;">Water-Borne Disease Risk</p>
+    </div>
+    
+    <div class="content">
+      <div class="alert-info">
+        <p style="margin: 0; font-weight: bold; color: #dc2626;">IMMEDIATE ATTENTION REQUIRED</p>
+        <p style="margin: 10px 0 0; color: #7f1d1d;">2 consecutive HIGH risk predictions detected at this location</p>
+      </div>
+      
+      <div class="label">📍 Location</div>
+      <div class="value">${alert.location}</div>
+      
+      <div class="label">⚠️ Risk Level</div>
+      <div class="value" style="color: #dc2626; font-weight: bold; font-size: 18px;">${
+        alert.riskLevel || "HIGH"
+      }</div>
+      
+      <div class="label">📅 Detected</div>
+      <div class="value">${timestamp}</div>
+      
+      <div class="label">🔍 Alert ID</div>
+      <div class="value">${alert._id}</div>
+      
+      <div class="label">📊 Triggering Predictions</div>
+      <div class="value">${alert.triggeringPredictions ? alert.triggeringPredictions.length : 0}</div>
+      
+      <div class="recommendations">
+        <p style="margin: 0; font-weight: bold; color: #f59e0b;">✓ RECOMMENDED ACTIONS</p>
+        <ol style="margin: 10px 0; color: #78350f;">
+          <li>Immediately assess the situation in ${alert.location}</li>
+          <li>Test water source for contaminants</li>
+          <li>Alert local health authorities</li>
+          <li>Implement water safety measures</li>
+          <li>Monitor for additional cases</li>
+          <li>Update crisis response team</li>
+        </ol>
+      </div>
+    </div>
+    
+    <div class="footer">
+      <p style="margin: 0;">This is an automated alert from SmartHealth Water Monitoring System</p>
+      <p style="margin: 5px 0 0;">Alert Status: ${alert.status}</p>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    // Send email with retry logic
+    console.log(
+      `📧 [Alert Notification] Sending alert email for ${alert.location} to ${recipients.length} recipient(s)`
+    );
+
+    const transporter = await createTransporter();
+    const fromEmail = process.env.SMTP_FROM_EMAIL || "noreply@smarthealth.com";
+    const fromName = process.env.SMTP_FROM_NAME || "SmartHealth System";
+
+    const mailOptions = {
+      from: `"${fromName}" <${fromEmail}>`,
+      bcc: recipients.join(", "),
+      subject,
+      text: textBody,
+      html: htmlBody,
+    };
+
+    let lastError = null;
+    const maxRetries = 3;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await transporter.sendMail(mailOptions);
+        console.log(
+          `✅ [Alert Notification] Alert email sent successfully (attempt ${attempt}) to ${recipients.length} recipients`
+        );
+
+        return {
+          success: true,
+          message: `Alert notification sent to ${recipients.length} health officials`,
+          count: recipients.length,
+          alertId: alert._id,
+          attempt,
+        };
+      } catch (error) {
+        lastError = error;
+        console.error(
+          `❌ [Alert Notification] Attempt ${attempt} failed: ${error.message}`
+        );
+
+        if (attempt < maxRetries) {
+          const waitTime = Math.pow(2, attempt) * 1000;
+          console.log(
+            `⏳ [Alert Notification] Retrying in ${waitTime / 1000}s...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    // All retries failed - log error but don't throw (safety)
+    console.error(
+      `❌ [Alert Notification] Failed after ${maxRetries} attempts: ${lastError.message}`
+    );
+
+    return {
+      success: false,
+      message: `Failed to send alert notification after ${maxRetries} attempts`,
+      count: 0,
+      alertId: alert._id,
+      error: lastError.message,
+    };
+  } catch (error) {
+    console.error(`❌ [Alert Notification] Error: ${error.message}`);
+    return {
+      success: false,
+      message: `Alert notification error: ${error.message}`,
+      count: 0,
+      error: error.message,
+    };
+  }
+}
+
 module.exports = {
   sendEmail,
   sendBulkEmail,
   generatePredictionEmailHTML,
   generatePredictionEmailText,
   notifyUsersOfPrediction,
+  notifyAlertCreation,
 };

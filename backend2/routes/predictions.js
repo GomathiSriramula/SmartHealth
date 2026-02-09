@@ -1,34 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { notifyUsersOfPrediction } = require("../utils/mailer");
-const mongoose = require("mongoose");
-
-// Define Prediction Schema
-const PredictionSchema = new mongoose.Schema(
-  {
-    predictionType: { type: String, required: true },
-    location: { type: String, required: false },
-    riskLevel: {
-      type: String,
-      enum: ["low", "medium", "high", "Low", "Medium", "High"],
-      required: true,
-    },
-    predictedDate: { type: Date, required: true, default: Date.now },
-    details: { type: String, required: true },
-    recommendations: { type: [String], default: [] },
-    modelVersion: { type: String, required: false },
-    confidence: { type: Number, required: false, min: 0, max: 100 },
-    lat: { type: Number, required: false },
-    lng: { type: Number, required: false },
-  },
-  { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
-);
-
-const Prediction = mongoose.model(
-  "Prediction",
-  PredictionSchema,
-  "predictions"
-);
+const { Prediction } = require("../models");
 
 /**
  * POST /predictions

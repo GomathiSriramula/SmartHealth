@@ -152,7 +152,7 @@ router.post('/alerts/:id/resolve', async (req, res) => {
  * GET /api/alerts/stats/summary
  * Get alert statistics
  */
-router.get('/stats/summary', async (req, res) => {
+router.get('/alerts/stats/summary', async (req, res) => {
   try {
     // Total alerts
     const totalAlerts = await Alert.countDocuments();

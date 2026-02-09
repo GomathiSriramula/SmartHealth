@@ -59,16 +59,18 @@ router.post('/predictions', async (req, res) => {
       alertResult = await checkForAlerts(prediction);
       
       if (alertResult.action === 'created' && alertResult.alert) {
-        console.log(`[Predictions] Alert created: ${alertResult.message}`);
+        console.log(`🚨 [Water Quality Alert] Alert CREATED: ${alertResult.message}`);
         
         // Send notification for new alert
         const notifyResult = await sendAlertNotification(alertResult.alert);
-        console.log(`[Predictions] Notification result: ${notifyResult.message}`);
+        console.log(`📧 [Water Quality Alert] Notification result: ${notifyResult.message}`);
       } else if (alertResult.action === 'resolved' && alertResult.alert) {
-        console.log(`[Predictions] Alert resolved: ${alertResult.message}`);
+        console.log(`✅ [Water Quality Alert] Alert RESOLVED: ${alertResult.message}`);
+      } else if (alertResult.action !== 'error') {
+        console.log(`⏳ [Water Quality Alert] Alert check: ${alertResult.message}`);
       }
     } catch (alertError) {
-      console.error('[Predictions] Alert processing error (non-blocking):', alertError.message);
+      console.error('[Water Quality Alert] Alert processing error (non-blocking):', alertError.message);
       // Don't fail the prediction creation
     }
 

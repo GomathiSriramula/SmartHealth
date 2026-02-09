@@ -87,11 +87,15 @@ const RiskStatus: React.FC<RiskStatusProps> = ({
 
         setError("");
         setLastUpdated(new Date());
+      } else if (response.status === 503 || response.status === 502) {
+        setError("🔴 Backend service is unavailable");
+      } else if (response.status === 500) {
+        setError("🔴 Server error - unable to fetch risk data");
       } else {
-        setError("Failed to fetch risk data");
+        setError("⚠️ Failed to load risk data");
       }
     } catch (err) {
-      setError("Error connecting to server");
+      setError("🔴 Cannot reach the server. Is the backend running?");
       console.error(err);
     } finally {
       setLoading(false);
@@ -153,8 +157,13 @@ const RiskStatus: React.FC<RiskStatusProps> = ({
 
         {/* Error Message */}
         {error && (
-          <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 mb-4">
-            <p className="text-yellow-700 text-sm">{error}</p>
+          <div className="bg-red-50 border-l-4 border-red-500 p-3 mb-4 rounded">
+            <p className="text-red-700 font-semibold">{error}</p>
+            {error.includes("Cannot reach") && (
+              <p className="text-red-600 text-sm mt-1">
+                💡 Tip: Make sure backend2 is running (npm start in backend2 folder)
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -1,23 +1,26 @@
 const Alert = require('../models/Alert');
 const Prediction = require('../models/Prediction');
+const { notifyAlertCreation } = require('../utils/mailer');
 
 /**
  * Alert Checker Service
  * 
  * Implements the alert logic:
- * - Trigger alert on consecutive HIGH risks at same location
+ * - Trigger alert on TWO consecutive HIGH risks at same location
  * - Resolve alert when risk drops below HIGH
  * - Prevent duplicate alerts for same ongoing outbreak
  * 
  * Alert Rules:
- * 1. Need 2 consecutive HIGH predictions at same location
- * 2. Predictions must be recent (within 24 hours)
+ * 1. Need exactly TWO consecutive HIGH predictions at same location
+ * 2. Predictions must be recent (configurable, default 48 hours)
  * 3. No new alert if one already exists for this location
  * 4. Resolve previous alert if current prediction is not HIGH
+ * 5. A single HIGH must NOT trigger alert
  */
 
-const ALERT_THRESHOLD = 2; // Need 2 consecutive HIGH risks
-const TIME_WINDOW = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+const ALERT_THRESHOLD = 2; // Need exactly 2 consecutive HIGH risks
+const DEFAULT_TIME_WINDOW = 48 * 60 * 60 * 1000; // 48 hours in milliseconds
+const TIME_WINDOW = process.env.ALERT_TIME_WINDOW_MS || DEFAULT_TIME_WINDOW;
 
 /**
  * Check if current prediction should trigger or resolve an alert
@@ -36,8 +39,11 @@ async function checkForAlerts(prediction) {
     }
 
     const location = prediction.location;
-    const currentRisk = prediction.risk;
+    // FIX: Use riskLevel field name (not risk)
+    const currentRisk = prediction.riskLevel ? prediction.riskLevel.toLowerCase() : 'unknown';
     const currentTime = new Date();
+
+    console.log(`[Alert Checker] Checking location: ${location}, current risk: ${currentRisk}`);
 
     // Step 1: Check if there's an active alert for this location
     const activeAlert = await Alert.findOne({
@@ -46,12 +52,14 @@ async function checkForAlerts(prediction) {
     });
 
     // Step 2: If current prediction is not HIGH, resolve any active alert
-    if (currentRisk !== 'HIGH') {
+    if (currentRisk !== 'high') {
       if (activeAlert) {
         activeAlert.status = 'resolved';
         activeAlert.resolvedAt = currentTime;
         activeAlert.resolvedReason = `Risk dropped to ${currentRisk}`;
         await activeAlert.save();
+
+        console.log(`✅ [Alert Resolver] Alert resolved for ${location} - Risk: ${currentRisk}`);
 
         return {
           alert: activeAlert,
@@ -60,6 +68,7 @@ async function checkForAlerts(prediction) {
         };
       }
 
+      console.log(`📊 [Alert Checker] Risk is ${currentRisk} (not HIGH) - no alert needed`);
       return {
         alert: null,
         action: 'none',
@@ -67,7 +76,10 @@ async function checkForAlerts(prediction) {
       };
     }
 
-    // Step 3: If current prediction IS HIGH and there's an active alert, keep it
+    // Step 3: Current prediction IS HIGH
+    console.log(`🔴 [Alert Checker] Current prediction is HIGH (risk: ${currentRisk}) at ${location}`);
+
+    // If there's already an active alert, keep it (don't create duplicate)
     if (activeAlert) {
       // Update the triggering predictions list
       if (!activeAlert.triggeringPredictions) {
@@ -76,12 +88,12 @@ async function checkForAlerts(prediction) {
 
       activeAlert.triggeringPredictions.push({
         predictionId: prediction._id,
-        risk: prediction.risk,
+        risk: prediction.riskLevel,
         confidence: prediction.confidence,
-        pH: prediction.waterQuality?.pH,
-        Turbidity: prediction.waterQuality?.Turbidity,
-        Dissolved_Oxygen: prediction.waterQuality?.Dissolved_Oxygen,
-        predictedAt: prediction.predictedAt,
+        pH: prediction.pH,
+        Turbidity: prediction.Turbidity,
+        Dissolved_Oxygen: prediction.Dissolved_Oxygen,
+        predictedAt: prediction.predictedDate,
       });
 
       // Keep only last 5 triggering predictions
@@ -91,6 +103,8 @@ async function checkForAlerts(prediction) {
 
       await activeAlert.save();
 
+      console.log(`📌 [Alert Checker] Active alert already exists - not creating duplicate. Updated with latest prediction.`);
+
       return {
         alert: activeAlert,
         action: 'none',
@@ -98,45 +112,52 @@ async function checkForAlerts(prediction) {
       };
     }
 
-    // Step 4: Current is HIGH and no active alert - check for consecutive HIGH risks
+    // Step 4: NO active alert exists - check for previous HIGH predictions
+    console.log(`🔍 [Alert Checker] No active alert. Looking for previous HIGH predictions in ${location}...`);
+    
     const recentHighRisks = await Prediction.find({
       location: location,
-      risk: 'HIGH',
-      predictedAt: {
+      riskLevel: { $in: ['high', 'High'] },
+      predictedDate: {
         $gte: new Date(currentTime.getTime() - TIME_WINDOW),
       },
+      _id: { $ne: prediction._id }, // Exclude current prediction
     })
-      .sort({ predictedAt: -1 })
-      .limit(ALERT_THRESHOLD);
+      .sort({ predictedDate: -1 })
+      .limit(ALERT_THRESHOLD - 1); // Get up to 1 previous HIGH (since we have current)
 
-    // We need at least 2 predictions (including current one)
-    // The query above won't include the current one yet, so we need to check if we have 1+ previous HIGH
+    console.log(`   Found ${recentHighRisks.length} previous HIGH predictions in time window`);
+
+    // We need exactly 2 HIGH predictions total (including current)
+    // The query above returns previous HIGHs, so we check if we have at least 1 previous HIGH
     if (recentHighRisks.length >= ALERT_THRESHOLD - 1) {
+      console.log(`✅ [Alert Creator] THRESHOLD MET: ${ALERT_THRESHOLD} total consecutive HIGHs detected!`);
+      
       // Create new alert
       const newAlert = new Alert({
         location: location,
         riskLevel: 'HIGH',
-        reason: `Consecutive ${ALERT_THRESHOLD} HIGH risk predictions at ${location}`,
+        reason: `${ALERT_THRESHOLD} consecutive HIGH risk predictions at ${location}`,
         triggeringPredictions: [
           // Add the previous HIGH predictions
           ...recentHighRisks.slice(0, ALERT_THRESHOLD - 1).map((pred) => ({
             predictionId: pred._id,
-            risk: pred.risk,
+            risk: pred.riskLevel,
             confidence: pred.confidence,
-            pH: pred.waterQuality?.pH,
-            Turbidity: pred.waterQuality?.Turbidity,
-            Dissolved_Oxygen: pred.waterQuality?.Dissolved_Oxygen,
-            predictedAt: pred.predictedAt,
+            pH: pred.pH,
+            Turbidity: pred.Turbidity,
+            Dissolved_Oxygen: pred.Dissolved_Oxygen,
+            predictedAt: pred.predictedDate,
           })),
           // Add the current prediction
           {
             predictionId: prediction._id,
-            risk: prediction.risk,
+            risk: prediction.riskLevel,
             confidence: prediction.confidence,
-            pH: prediction.waterQuality?.pH,
-            Turbidity: prediction.waterQuality?.Turbidity,
-            Dissolved_Oxygen: prediction.waterQuality?.Dissolved_Oxygen,
-            predictedAt: prediction.predictedAt,
+            pH: prediction.pH,
+            Turbidity: prediction.Turbidity,
+            Dissolved_Oxygen: prediction.Dissolved_Oxygen,
+            predictedAt: prediction.predictedDate,
           },
         ],
         status: 'active',
@@ -150,6 +171,27 @@ async function checkForAlerts(prediction) {
 
       await newAlert.save();
 
+      console.log(`🚨 [Alert Creator] NEW ALERT CREATED: ${newAlert._id} for location: ${location}`);
+
+      // STEP 4: Send email notification to health officials
+      try {
+        const notificationResult = await notifyAlertCreation(newAlert);
+        if (notificationResult.success) {
+          console.log(
+            `✅ [Alert Notification] ${notificationResult.message}`
+          );
+        } else {
+          console.warn(
+            `⚠️  [Alert Notification] Failed but continuing: ${notificationResult.message}`
+          );
+        }
+      } catch (notificationError) {
+        // Don't fail alert creation if notification fails (safety)
+        console.error(
+          `⚠️  [Alert Notification] Error (non-blocking): ${notificationError.message}`
+        );
+      }
+
       return {
         alert: newAlert,
         action: 'created',
@@ -157,13 +199,15 @@ async function checkForAlerts(prediction) {
       };
     }
 
+    console.log(`⏳ [Alert Checker] Only 1 HIGH prediction so far - need ${ALERT_THRESHOLD} consecutive. Waiting for next prediction.`);
+
     return {
       alert: null,
       action: 'none',
-      message: `Insufficient consecutive HIGH risks at ${location} (need ${ALERT_THRESHOLD})`,
+      message: `Insufficient consecutive HIGH risks at ${location} (have 1, need ${ALERT_THRESHOLD})`,
     };
   } catch (error) {
-    console.error('[AlertChecker] Error checking for alerts:', error.message);
+    console.error('[Alert Checker] Error checking for alerts:', error.message);
     return {
       alert: null,
       action: 'error',

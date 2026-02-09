@@ -103,11 +103,11 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     const highRiskCases = analyses.filter(a => a.analysis.riskLevel === 'high');
     
     if (highRiskCases.length === 0) {
-      console.log(`📊 CSV Upload: No HIGH RISK cases found in ${reports.length} reports`);
+      console.log(`📊 [CSV Bulk Upload] No HIGH RISK cases found in ${reports.length} reports - no prediction triggered`);
       return null;
     }
     
-    console.log(`🚨 CSV Upload: ${highRiskCases.length} HIGH RISK cases detected!`);
+    console.log(`🚨 [CSV Bulk Upload] ${highRiskCases.length} HIGH RISK cases detected out of ${reports.length} total! - Triggering prediction...`);
     
     // Get location info from high-risk cases
     const locations = highRiskCases
@@ -157,14 +157,14 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     
     // Save prediction
     const prediction = await Prediction.create(predictionData);
-    console.log(`✅ Bulk upload prediction created: ${prediction._id}`);
+    console.log(`✅ [CSV Bulk Upload] Prediction created: ${prediction._id}`);
     
     // Send email notification
-    console.log(`📧 Sending email alerts for bulk HIGH RISK detection...`);
+    console.log(`📧 [CSV Bulk Upload] Sending email alerts to users...`);
     const notificationResult = await notifyUsersOfPrediction(prediction);
     
     if (notificationResult.success && notificationResult.count > 0) {
-      console.log(`✅ Email alerts sent to ${notificationResult.count} users`);
+      console.log(`✅ [CSV Bulk Upload] Email alerts sent to ${notificationResult.count} users`);
     }
     
     return {

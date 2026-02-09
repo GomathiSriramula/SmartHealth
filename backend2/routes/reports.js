@@ -3,6 +3,7 @@ const router = express.Router();
 const { CaseReport, Prediction } = require("../models");
 const publish = require("../utils/publisher");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
+const { checkForAlerts } = require("../services/alertChecker");
 
 const { authMiddleware } = require("../utils/auth");
 
@@ -112,11 +113,11 @@ async function createPredictionAndNotify(report, analysis) {
   try {
     // Only create prediction and notify for HIGH RISK cases
     if (analysis.riskLevel !== 'high') {
-      console.log(`📊 Report ${report._id}: Risk level is ${analysis.riskLevel} - no alert needed`);
+      console.log(`📊 [Case Report Prediction] Report ${report._id}: Risk level is ${analysis.riskLevel} - no prediction triggered`);
       return null;
     }
     
-    console.log(`🚨 HIGH RISK REPORT DETECTED: ${report._id}`);
+    console.log(`🚨 [Case Report Prediction] HIGH RISK CASE DETECTED: ${report._id} - Triggering prediction...`);
     
     // Create prediction record
     const predictionData = {
@@ -145,25 +146,42 @@ async function createPredictionAndNotify(report, analysis) {
     
     // Save prediction to database
     const prediction = await Prediction.create(predictionData);
-    console.log(`✅ Prediction created: ${prediction._id}`);
+    console.log(`✅ [Case Report Prediction] Prediction created: ${prediction._id}`);
+    
+    // 🚨 NEW: Check for alerts (consecutive HIGH risks at same location)
+    let alertResult = null;
+    try {
+      alertResult = await checkForAlerts(prediction);
+      
+      if (alertResult.action === 'created') {
+        console.log(`🚨 [Case Report Alert] Alert CREATED from disease case: ${alertResult.message}`);
+      } else if (alertResult.action === 'resolved') {
+        console.log(`✅ [Case Report Alert] Alert RESOLVED: ${alertResult.message}`);
+      } else {
+        console.log(`⏳ [Case Report Alert] Alert check: ${alertResult.message}`);
+      }
+    } catch (alertError) {
+      console.error(`⚠️  [Case Report Alert] Alert check failed (non-blocking):`, alertError.message);
+    }
     
     // Send email notification to all users
-    console.log(`📧 Triggering email notifications for HIGH RISK case...`);
+    console.log(`📧 [Case Report Prediction] Sending email alerts for HIGH RISK case...`);
     const notificationResult = await notifyUsersOfPrediction(prediction);
     
     if (notificationResult.success && notificationResult.count > 0) {
-      console.log(`✅ Email alerts sent to ${notificationResult.count} users`);
+      console.log(`✅ [Case Report Prediction] Email alerts sent to ${notificationResult.count} users`);
     } else {
-      console.log(`⚠️  Email notification result: ${notificationResult.message}`);
+      console.log(`⚠️  [Case Report Prediction] Email notification result: ${notificationResult.message}`);
     }
     
     return {
       prediction,
-      notification: notificationResult
+      notification: notificationResult,
+      alert: alertResult
     };
     
   } catch (error) {
-    console.error(`❌ Error creating prediction/notification:`, error);
+    console.error(`❌ [Case Report Prediction] Error creating prediction/notification:`, error);
     // Don't fail the report submission if prediction fails
     return null;
   }
@@ -200,9 +218,9 @@ router.post("/report", authMiddleware, async (req, res) => {
     const obj = await normalizeAndCreateReport(req.body);
     await publish("case_reports", { id: obj._id });
     
-    // 🚨 NEW: Analyze report and send email if HIGH RISK
+    // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
     const analysis = analyzeReportRisk(obj);
-    console.log(`📊 Report ${obj._id} - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
+    console.log(`📊 [Case Report] Report ${obj._id} created - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
     
     const predictionResult = await createPredictionAndNotify(obj, analysis);
     
@@ -238,9 +256,9 @@ router.post("/reports", authMiddleware, async (req, res) => {
     const obj = await normalizeAndCreateReport(req.body);
     await publish("case_reports", { id: obj._id });
     
-    // 🚨 NEW: Analyze report and send email if HIGH RISK
+    // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
     const analysis = analyzeReportRisk(obj);
-    console.log(`📊 Report ${obj._id} - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
+    console.log(`📊 [Case Report] Report ${obj._id} created - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
     
     const predictionResult = await createPredictionAndNotify(obj, analysis);
     

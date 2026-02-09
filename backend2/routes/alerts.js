@@ -7,8 +7,9 @@
 
 const express = require('express');
 const router = express.Router();
+const Alert = require('../models/Alert');
 const {
-  Alert,
+  getAlertModel,
   createHighRiskAlert,
   getRecentHighRiskPredictions,
   acknowledgeAlert,
@@ -87,7 +88,6 @@ router.get('/', async (req, res) => {
     }
 
     const alerts = await Alert.find(query)
-      .populate('predictions', 'riskLevel confidence predictedDate location waterQualityInput')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip))
