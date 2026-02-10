@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { Prediction } = require("../models");
+const { checkForAlerts } = require("../services/alertChecker");
+const { notifyAlertCreation } = require("../utils/mailer");
 
 /**
  * POST /predictions
@@ -58,6 +60,47 @@ router.post("/predictions", async (req, res) => {
 
     await prediction.save();
     console.log(`✅ Prediction saved: ${prediction._id}`);
+    console.log(`🔍 DEBUG: riskLevel="${prediction.riskLevel}", type=${typeof prediction.riskLevel}`);
+
+    // Check for alerts if this is a HIGH risk
+    let alertResult = null;
+    if (prediction.riskLevel && prediction.riskLevel.toLowerCase() === 'high') {
+      console.log(`✓ Condition met: riskLevel is HIGH, checking for alerts...`);
+      try {
+        // Convert prediction format for alert checker
+        // Alert checker expects: risk, predictedAt, waterQuality
+        const predictionForAlert = {
+          ...prediction.toObject(),
+          risk: prediction.riskLevel, // Convert riskLevel to risk
+          predictedAt: prediction.predictedDate, // Convert predictedDate to predictedAt
+        };
+        
+        console.log(`📡 Calling checkForAlerts with location="${predictionForAlert.location}"...`);
+        alertResult = await checkForAlerts(predictionForAlert);
+        console.log(`📡 checkForAlerts returned:`, alertResult);
+        
+        if (alertResult && alertResult.action === 'created' && alertResult.alert) {
+          console.log(`🚨 [Alert] CREATED: ${alertResult.message}`);
+          
+          // Send notification
+          try {
+            const notifyResult = await notifyAlertCreation(alertResult.alert);
+            console.log(`📧 [Alert] Notification sent: ${notifyResult.message}`);
+          } catch (notifyError) {
+            console.error(`⚠️  [Alert] Notification failed (non-blocking): ${notifyError.message}`);
+          }
+        } else if (alertResult && alertResult.action === 'resolved' && alertResult.alert) {
+          console.log(`✅ [Alert] RESOLVED: ${alertResult.message}`);
+        } else if (alertResult) {
+          console.log(`ℹ️  [Alert] ${alertResult.message}`);
+        }
+      } catch (alertError) {
+        console.error(`⚠️  [Alert] Check failed (non-blocking): ${alertError.message}`);
+        console.error(alertError);
+      }
+    } else {
+      console.log(`⊘ Skipping alert check: riskLevel="${prediction.riskLevel}"`);
+    }
 
     // Send email notifications to all users
     try {
@@ -74,6 +117,11 @@ router.post("/predictions", async (req, res) => {
           predictedDate: prediction.predictedDate,
         },
         notification: result,
+        alert: alertResult ? {
+          action: alertResult.action,
+          message: alertResult.message,
+          alertId: alertResult.alert ? alertResult.alert._id : null,
+        } : null,
       });
     } catch (emailError) {
       console.error("Failed to send email notifications:", emailError.message);
@@ -91,6 +139,11 @@ router.post("/predictions", async (req, res) => {
           success: false,
           error: emailError.message,
         },
+        alert: alertResult ? {
+          action: alertResult.action,
+          message: alertResult.message,
+          alertId: alertResult.alert ? alertResult.alert._id : null,
+        } : null,
       });
     }
   } catch (error) {

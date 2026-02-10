@@ -95,6 +95,38 @@ POST   /alerts/:id/acknowledge      - Mark reviewed
 POST   /alerts/:id/resolve          - Mark resolved
 ```
 
+## 🔐 Role-Based Alert Visibility
+
+**What Changed:**
+- Added `role` field to User model (enum: ADMIN, OPERATOR, USER; default: USER)
+- Added `locations` array field to User model for geographic scoping
+- Implemented role-based filtering in GET /api/alerts endpoint
+- Added authorization checks to POST /api/alerts/{id}/resolve (ADMIN + OPERATOR only)
+- Added authorization checks to POST /api/alerts/{id}/notify (ADMIN only)
+- Enhanced AlertsPanel component to hide/show UI elements by role
+
+**Why:**
+- Implement hierarchical access control (admin oversight, operator action, user visibility)
+- Enforce location-based responsibility assignment
+- Prevent unauthorized alert management (resolution, notifications)
+- Protect sensitive metadata from viewer-level users
+
+**Backward Compatibility:**
+- Default role: USER (most restrictive, preserves existing behavior)
+- Optional locations field (existing users get empty array)
+- JWT payload expanded: role and locations included on login
+- GET /api/alerts works without role (anonymous still supported)
+- Middleware defaults missing fields safely (role='USER', locations=[])
+- No URL changes; no breaking API modifications
+- Existing tests continue to pass; legacy tokens default to USER role
+
+**Access Levels:**
+| Role | Alert Visibility | Actions |
+|------|------------------|---------|
+| **ADMIN** | All alerts, all locations | Full details, resolve, send notifications |
+| **OPERATOR** | Assigned locations only, all statuses | Full details, resolve alerts |
+| **USER** | Assigned locations, ACTIVE only | Simplified view (location + reason + time) |
+
 ## 🧪 Testing
 
 ### Run Integration Tests

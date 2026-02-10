@@ -29,6 +29,7 @@ function verifyToken(token) {
 }
 
 // Express middleware: accepts x-api-key header OR Bearer token
+// Extracts user info including id, username, role, and locations into req.user
 function authMiddleware(req, res, next) {
   const apiKey = process.env.API_KEY || "secret-key";
   const headerKey = req.header("x-api-key");
@@ -45,7 +46,13 @@ function authMiddleware(req, res, next) {
   const token = parts[1];
   const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ error: "Invalid token" });
-  req.user = payload;
+  // Attach all user fields from token to req.user
+  req.user = {
+    id: payload.id,
+    username: payload.username,
+    role: payload.role || 'USER',
+    locations: payload.locations || []
+  };
   next();
 }
 

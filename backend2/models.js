@@ -70,6 +70,8 @@ const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   passwordHash: { type: String, required: true },
+  role: { type: String, enum: ['ADMIN', 'OPERATOR', 'USER'], default: 'USER' },
+  locations: [{ type: String }], // Optional: locations user is assigned to (e.g., ["Plant A", "Plant B"])
   created_at: { type: Date, default: Date.now },
 });
 

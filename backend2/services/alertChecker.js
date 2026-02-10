@@ -1,5 +1,5 @@
 const Alert = require('../models/Alert');
-const Prediction = require('../models/Prediction');
+const { Prediction } = require('../models'); // Use the same Prediction model as predictions route
 const { notifyAlertCreation } = require('../utils/mailer');
 
 /**
@@ -39,8 +39,8 @@ async function checkForAlerts(prediction) {
     }
 
     const location = prediction.location;
-    // FIX: Use riskLevel field name (not risk)
-    const currentRisk = prediction.riskLevel ? prediction.riskLevel.toLowerCase() : 'unknown';
+    // FIX: Use risk field name (not riskLevel)
+    const currentRisk = prediction.risk ? prediction.risk.toLowerCase() : 'unknown';
     const currentTime = new Date();
 
     console.log(`[Alert Checker] Checking location: ${location}, current risk: ${currentRisk}`);
@@ -88,12 +88,12 @@ async function checkForAlerts(prediction) {
 
       activeAlert.triggeringPredictions.push({
         predictionId: prediction._id,
-        risk: prediction.riskLevel,
+        risk: prediction.risk || prediction.riskLevel,
         confidence: prediction.confidence,
-        pH: prediction.pH,
-        Turbidity: prediction.Turbidity,
-        Dissolved_Oxygen: prediction.Dissolved_Oxygen,
-        predictedAt: prediction.predictedDate,
+        pH: prediction.waterQuality?.pH,
+        Turbidity: prediction.waterQuality?.Turbidity,
+        Dissolved_Oxygen: prediction.waterQuality?.Dissolved_Oxygen,
+        predictedAt: prediction.predictedAt || prediction.predictedDate,
       });
 
       // Keep only last 5 triggering predictions
@@ -115,11 +115,14 @@ async function checkForAlerts(prediction) {
     // Step 4: NO active alert exists - check for previous HIGH predictions
     console.log(`🔍 [Alert Checker] No active alert. Looking for previous HIGH predictions in ${location}...`);
     
+    // Query for previous HIGH risk predictions
+    const timeWindowStart = new Date(currentTime.getTime() - TIME_WINDOW);
+    
     const recentHighRisks = await Prediction.find({
       location: location,
-      riskLevel: { $in: ['high', 'High'] },
+      riskLevel: { $in: ['HIGH', 'high'] },
       predictedDate: {
-        $gte: new Date(currentTime.getTime() - TIME_WINDOW),
+        $gte: timeWindowStart
       },
       _id: { $ne: prediction._id }, // Exclude current prediction
     })
@@ -142,22 +145,22 @@ async function checkForAlerts(prediction) {
           // Add the previous HIGH predictions
           ...recentHighRisks.slice(0, ALERT_THRESHOLD - 1).map((pred) => ({
             predictionId: pred._id,
-            risk: pred.riskLevel,
+            risk: pred.risk || pred.riskLevel,
             confidence: pred.confidence,
-            pH: pred.pH,
-            Turbidity: pred.Turbidity,
-            Dissolved_Oxygen: pred.Dissolved_Oxygen,
-            predictedAt: pred.predictedDate,
+            pH: pred.waterQuality?.pH,
+            Turbidity: pred.waterQuality?.Turbidity,
+            Dissolved_Oxygen: pred.waterQuality?.Dissolved_Oxygen,
+            predictedAt: pred.predictedAt || pred.predictedDate,
           })),
           // Add the current prediction
           {
             predictionId: prediction._id,
-            risk: prediction.riskLevel,
+            risk: prediction.risk || prediction.riskLevel,
             confidence: prediction.confidence,
-            pH: prediction.pH,
-            Turbidity: prediction.Turbidity,
-            Dissolved_Oxygen: prediction.Dissolved_Oxygen,
-            predictedAt: prediction.predictedDate,
+            pH: prediction.waterQuality?.pH,
+            Turbidity: prediction.waterQuality?.Turbidity,
+            Dissolved_Oxygen: prediction.waterQuality?.Dissolved_Oxygen,
+            predictedAt: prediction.predictedAt || prediction.predictedDate,
           },
         ],
         status: 'active',
