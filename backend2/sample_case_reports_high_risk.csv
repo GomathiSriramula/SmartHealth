@@ -1,0 +1,6 @@
+reporter_type,patient_age,sex,lat,lng,symptoms,reported_at,location
+Clinic,25,M,17.4530,78.3950,Fever|Diarrhea|Blood in Stool|Dehydration|Vomiting,2026-02-10T10:00Z,ramapur
+ASHA,8,F,17.4530,78.3950,Diarrhea|Vomiting|Fever|Abdominal Pain,2026-02-10T10:30Z,ramapur
+HealthOfficial,45,M,17.4530,78.3950,Blood in Stool|Fever|Dehydration|Fatigue,2026-02-10T11:00Z,ramapur
+Volunteer,12,F,17.4530,78.3950,Diarrhea|Vomiting|Nausea|Fever|Dehydration,2026-02-10T11:30Z,ramapur
+Clinic,34,M,17.4530,78.3950,Fever|Diarrhea|Blood in Stool|Abdominal Pain,2026-02-10T12:00Z,ramapur

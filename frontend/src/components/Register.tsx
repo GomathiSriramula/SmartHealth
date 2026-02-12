@@ -13,6 +13,10 @@ const Register: React.FC<RegisterProps> = ({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
+  const [role, setRole] = useState("USER");
+  const [state, setState] = useState("");
+  const [district, setDistrict] = useState("");
+  const [village, setVillage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -30,10 +34,28 @@ const Register: React.FC<RegisterProps> = ({
         return;
       }
 
+      // ADMIN role validation
+      if (role === "ADMIN") {
+        if (!state || !district || !village) {
+          setError("State, District, and Village are required for Admin role");
+          setLoading(false);
+          return;
+        }
+      }
+
+      const payload: any = { username, password, email, role };
+      
+      // Add location fields only for ADMIN
+      if (role === "ADMIN") {
+        payload.state = state;
+        payload.district = district;
+        payload.village = village;
+      }
+
       const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, email }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -124,6 +146,70 @@ const Register: React.FC<RegisterProps> = ({
               minLength={6}
             />
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Role *
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              disabled={loading}
+            >
+              <option value="USER">User</option>
+              <option value="ADMIN">Admin</option>
+            </select>
+          </div>
+
+          {role === "ADMIN" && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  State *
+                </label>
+                <input
+                  type="text"
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Enter state"
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  District *
+                </label>
+                <input
+                  type="text"
+                  value={district}
+                  onChange={(e) => setDistrict(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Enter district"
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Village *
+                </label>
+                <input
+                  type="text"
+                  value={village}
+                  onChange={(e) => setVillage(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Enter village"
+                  required
+                  disabled={loading}
+                />
+              </div>
+            </>
+          )}
 
           <button
             type="submit"

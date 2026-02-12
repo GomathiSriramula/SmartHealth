@@ -1,6 +1,7 @@
 const express = require('express');
 const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
+const { authMiddleware } = require('../utils/auth');
 
 const router = express.Router();
 
@@ -9,16 +10,15 @@ const router = express.Router();
  * List alerts with optional filtering and role-based access control
  * 
  * Role-based behavior:
- * - ADMIN: Returns all alerts (no restrictions)
- * - OPERATOR: Returns alerts for assigned locations only
- * - USER: Returns only ACTIVE alerts for assigned locations (hides metadata)
+ * - ADMIN: Returns alerts only from their assigned village
+ * - OPERATOR: Returns alerts from all locations (no restrictions)
+ * - USER: Returns alerts from all locations (no restrictions)
  */
-router.get('/alerts', async (req, res) => {
+router.get('/alerts', authMiddleware, async (req, res) => {
   try {
     const { location, status = 'all', limit = 50, skip = 0 } = req.query;
-    const user = req.user || {}; // User info from JWT token (set by authMiddleware)
-    const userRole = user.role || 'USER';
-    const userLocations = user.locations || [];
+    const userRole = req.user.role || 'USER';
+    const adminLocation = req.user.adminLocation;
 
     // Build base filter from query parameters
     const filter = {};
@@ -27,36 +27,21 @@ router.get('/alerts', async (req, res) => {
 
     // Apply role-based filtering
     if (userRole === 'ADMIN') {
-      // ADMIN: No additional filtering - see all alerts
-      console.log('🔓 ADMIN access: returning all alerts');
-    } else if (userRole === 'OPERATOR') {
-      // OPERATOR: Filter to assigned locations
-      if (userLocations.length > 0) {
-        filter.location = { $in: userLocations };
-        console.log(`🔐 OPERATOR access: filtering to locations [${userLocations.join(', ')}]`);
-      } else {
-        // OPERATOR with no assigned locations gets empty result
-        console.log('⚠️  OPERATOR with no assigned locations');
-        return res.json({
-          success: true,
-          total: 0,
-          count: 0,
-          skip: parseInt(skip),
-          limit: parseInt(limit),
-          alerts: []
+      // ADMIN: Filter to their assigned village
+      if (!adminLocation || !adminLocation.village) {
+        return res.status(500).json({
+          error: 'Admin location not configured',
+          detail: 'Admin user is missing location assignment'
         });
       }
+      filter.location = new RegExp(`^${adminLocation.village}$`, 'i');
+      console.log(`🔐 ADMIN access: filtering alerts to village '${adminLocation.village}'`);
+    } else if (userRole === 'OPERATOR') {
+      // OPERATOR: No location filtering - see all alerts
+      console.log('🔓 OPERATOR access: returning all alerts');
     } else {
-      // USER: Filter to ACTIVE alerts at assigned locations only
-      filter.status = 'active';
-      if (userLocations.length > 0) {
-        filter.location = { $in: userLocations };
-        console.log(`🔐 USER access: filtering to ACTIVE alerts at locations [${userLocations.join(', ')}]`);
-      } else {
-        // USER with no assigned locations gets only global ACTIVE alerts
-        console.log('⚠️  USER with no assigned locations - returning only ACTIVE alerts');
-        filter.status = 'active';
-      }
+      // USER: No location filtering - see all alerts
+      console.log('🔓 USER access: returning all alerts');
     }
 
     // Get total count with applied filters
@@ -68,27 +53,14 @@ router.get('/alerts', async (req, res) => {
       .limit(parseInt(limit))
       .skip(parseInt(skip));
 
-    // For USER role, strip sensitive metadata fields
-    let responseAlerts = alerts;
-    if (userRole === 'USER') {
-      responseAlerts = alerts.map(alert => {
-        const alertObj = alert.toObject();
-        // Remove internal metadata fields for USER role
-        delete alertObj.metadata;
-        delete alertObj.notificationError;
-        delete alertObj.triggeringPredictions;
-        return alertObj;
-      });
-    }
-
     return res.json({
       success: true,
       total,
-      count: responseAlerts.length,
+      count: alerts.length,
       skip: parseInt(skip),
       limit: parseInt(limit),
       userRole,
-      alerts: responseAlerts,
+      alerts: alerts,
     });
   } catch (error) {
     console.error('[AlertsAPI] Error listing alerts:', error.message);
@@ -103,8 +75,12 @@ router.get('/alerts', async (req, res) => {
 /**
  * GET /api/alerts/:id
  * Get alert details
+ * 
+ * Role-based access control:
+ * - ADMIN: Can only access alerts from their assigned village (403 if different village)
+ * - OPERATOR/USER: Can access any alert
  */
-router.get('/alerts/:id', async (req, res) => {
+router.get('/alerts/:id', authMiddleware, async (req, res) => {
   try {
     const alert = await Alert.findById(req.params.id);
 
@@ -113,6 +89,27 @@ router.get('/alerts/:id', async (req, res) => {
         success: false,
         error: 'Alert not found',
       });
+    }
+
+    // Apply role-based access control
+    const userRole = req.user.role || 'USER';
+    if (userRole === 'ADMIN') {
+      const adminLocation = req.user.adminLocation;
+      if (!adminLocation || !adminLocation.village) {
+        return res.status(500).json({
+          error: 'Admin location not configured',
+          detail: 'Admin user is missing location assignment'
+        });
+      }
+      // Check if alert's location matches admin's village (case-insensitive)
+      const adminVillage = adminLocation.village.toLowerCase().trim();
+      const alertLocation = (alert.location || '').toLowerCase().trim();
+      if (adminVillage !== alertLocation) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          detail: `You can only access alerts from your assigned village (${adminLocation.village})`
+        });
+      }
     }
 
     return res.json({
@@ -135,10 +132,10 @@ router.get('/alerts/:id', async (req, res) => {
  * Idempotent - safe to call multiple times
  * Role-based access: ADMIN only
  */
-router.post('/alerts/:id/notify', async (req, res) => {
+router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
   try {
     // Authorization: Only ADMIN can send notifications
-    const userRole = (req.user && req.user.role) || 'USER';
+    const userRole = req.user.role || 'USER';
     if (userRole !== 'ADMIN') {
       return res.status(403).json({
         success: false,
@@ -180,21 +177,63 @@ router.post('/alerts/:id/notify', async (req, res) => {
 /**
  * POST /api/alerts/:id/resolve
  * Manually resolve an alert
- * Role-based access: ADMIN and OPERATOR only
+ * 
+ * Security Rules:
+ * - Only ADMIN users can resolve alerts
+ * - ADMIN must have location configured
+ * - Alert location must match admin's assigned village (case-insensitive)
+ * - USER and OPERATOR roles receive 403 Forbidden
+ * - Returns 403 if ADMIN tries to resolve alert outside their village
  */
-router.post('/alerts/:id/resolve', async (req, res) => {
+router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
   try {
-    // Authorization: Only ADMIN and OPERATOR can resolve alerts
-    const userRole = (req.user && req.user.role) || 'USER';
-    if (userRole === 'USER') {
+    // Authorization: Only ADMIN can resolve alerts
+    const userRole = req.user.role || 'USER';
+    if (userRole !== 'ADMIN') {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'Only ADMIN and OPERATOR can resolve alerts'
+        message: 'Only admins can resolve alerts'
       });
     }
 
-    const alert = await Alert.findByIdAndUpdate(
+    // ADMIN must have location configured
+    const adminLocation = req.user.adminLocation;
+    if (!adminLocation || !adminLocation.village) {
+      return res.status(500).json({
+        success: false,
+        error: 'Admin location not configured',
+        detail: 'Admin user is missing location assignment'
+      });
+    }
+
+    // Fetch alert to check its location
+    const alert = await Alert.findById(req.params.id);
+
+    if (!alert) {
+      return res.status(404).json({
+        success: false,
+        error: 'Alert not found',
+      });
+    }
+
+    // Validate ADMIN can only resolve alerts from their assigned village
+    const adminVillage = adminLocation.village.toLowerCase().trim();
+    const alertLocation = (alert.location || '').toLowerCase().trim();
+    
+    if (adminVillage !== alertLocation) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        detail: `You can only resolve alerts from your assigned village (${adminLocation.village})`,
+        expectedVillage: adminLocation.village,
+        receivedVillage: alert.location,
+        alertId: alert._id
+      });
+    }
+
+    // Update alert status
+    const updatedAlert = await Alert.findByIdAndUpdate(
       req.params.id,
       {
         status: 'resolved',
@@ -204,17 +243,10 @@ router.post('/alerts/:id/resolve', async (req, res) => {
       { new: true }
     );
 
-    if (!alert) {
-      return res.status(404).json({
-        success: false,
-        error: 'Alert not found',
-      });
-    }
-
     return res.json({
       success: true,
       message: 'Alert resolved',
-      alert,
+      alert: updatedAlert,
     });
   } catch (error) {
     console.error('[AlertsAPI] Error resolving alert:', error.message);
@@ -229,20 +261,42 @@ router.post('/alerts/:id/resolve', async (req, res) => {
 /**
  * GET /api/alerts/stats/summary
  * Get alert statistics
+ * 
+ * Role-based statistics:
+ * - ADMIN: Returns statistics only for alerts in their assigned village
+ * - OPERATOR/USER: Returns statistics for all alerts
  */
-router.get('/alerts/stats/summary', async (req, res) => {
+router.get('/alerts/stats/summary', authMiddleware, async (req, res) => {
   try {
+    const userRole = req.user.role || 'USER';
+    const adminLocation = req.user.adminLocation;
+    
+    let query = {};
+    
+    // Apply role-based location filtering
+    if (userRole === 'ADMIN') {
+      if (!adminLocation || !adminLocation.village) {
+        return res.status(500).json({
+          error: 'Admin location not configured',
+          detail: 'Admin user is missing location assignment'
+        });
+      }
+      query.location = new RegExp(`^${adminLocation.village}$`, 'i');
+    }
+    // OPERATOR and USER: No location filter (see statistics for all records)
+    
     // Total alerts
-    const totalAlerts = await Alert.countDocuments();
+    const totalAlerts = await Alert.countDocuments(query);
 
     // Active alerts
-    const activeAlerts = await Alert.countDocuments({ status: 'active' });
+    const activeAlerts = await Alert.countDocuments({ ...query, status: 'active' });
 
     // Resolved alerts
-    const resolvedAlerts = await Alert.countDocuments({ status: 'resolved' });
+    const resolvedAlerts = await Alert.countDocuments({ ...query, status: 'resolved' });
 
     // Alerts by location
     const alertsByLocation = await Alert.aggregate([
+      { $match: query },
       {
         $group: {
           _id: '$location',
@@ -264,6 +318,7 @@ router.get('/alerts/stats/summary', async (req, res) => {
 
     // Notifications sent vs failed
     const notificationStats = await Alert.aggregate([
+      { $match: query },
       {
         $group: {
           _id: null,

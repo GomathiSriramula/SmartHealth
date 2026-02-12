@@ -1,0 +1,6 @@
+reporter_type,reporter_id,patient_age,sex,lat,lng,symptoms,reported_at,location
+Clinic,kavya,45,M,17.4530,78.3950,Diarrhea|Blood in Stool|Dehydration|Fever,2025-11-01T10:30Z,ramapur
+ASHA,kavya,32,F,17.4520,78.3960,Diarrhea|Vomiting|Fever|Muscle Cramps,2025-11-02T14:15Z,ramapur
+Volunteer,kavya,28,M,17.4510,78.3940,Severe Diarrhea|Cholera|Dehydration|Headache,2025-11-03T08:45Z,ramapur
+Clinic,kavya,55,F,17.4540,78.3970,Diarrhea|Blood in Stool|Abdominal Pain,2025-11-04T16:20Z,ramapur
+ASHA,kavya,19,M,17.4525,78.3945,Diarrhea|Fever|Fatigue|Nausea,2025-11-05T11:00Z,ramapur

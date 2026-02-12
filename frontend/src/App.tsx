@@ -10,14 +10,17 @@ function App() {
   >("landing");
   const [token, setToken] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   // Load token from localStorage on mount
   useEffect(() => {
     const savedToken = localStorage.getItem("smarthealth_token");
     const savedUsername = localStorage.getItem("smarthealth_username");
+    const savedRole = localStorage.getItem("smarthealth_role");
     if (savedToken && savedUsername) {
       setToken(savedToken);
       setUsername(savedUsername);
+      setUserRole(savedRole || "USER");
     }
   }, []);
 
@@ -33,19 +36,23 @@ function App() {
     setCurrentView("landing");
   };
 
-  const handleLoginSuccess = (newToken: string, user: string) => {
+  const handleLoginSuccess = (newToken: string, user: string, role: string) => {
     setToken(newToken);
     setUsername(user);
+    setUserRole(role);
     localStorage.setItem("smarthealth_token", newToken);
     localStorage.setItem("smarthealth_username", user);
+    localStorage.setItem("smarthealth_role", role);
     setCurrentView("dashboard");
   };
 
   const handleLogout = () => {
     setToken(null);
     setUsername(null);
+    setUserRole(null);
     localStorage.removeItem("smarthealth_token");
     localStorage.removeItem("smarthealth_username");
+    localStorage.removeItem("smarthealth_role");
     setCurrentView("landing");
   };
 
@@ -75,6 +82,7 @@ function App() {
           onBackToLanding={navigateToLanding}
           token={token}
           username={username || "User"}
+          userRole={userRole || "USER"}
           onLogout={handleLogout}
         />
       )}

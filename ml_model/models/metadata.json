@@ -1,0 +1,24 @@
+{
+  "feature_names": [
+    "pH",
+    "Turbidity",
+    "Dissolved_Oxygen",
+    "contamination_flag",
+    "case_density",
+    "seasonality"
+  ],
+  "metrics": {
+    "train_accuracy": 1.0,
+    "test_accuracy": 1.0,
+    "test_precision": 1.0,
+    "test_recall": 1.0,
+    "test_f1": 1.0,
+    "training_samples": 800,
+    "test_samples": 200,
+    "timestamp": "2026-02-12T20:24:16.155646"
+  },
+  "class_weights": "None",
+  "trained_at": "2026-02-12T20:24:16.313868",
+  "model_type": "RandomForestClassifier",
+  "n_estimators": 100
+}

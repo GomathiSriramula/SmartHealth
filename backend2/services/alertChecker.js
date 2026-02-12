@@ -39,8 +39,8 @@ async function checkForAlerts(prediction) {
     }
 
     const location = prediction.location;
-    // FIX: Use risk field name (not riskLevel)
-    const currentRisk = prediction.risk ? prediction.risk.toLowerCase() : 'unknown';
+    // Support both 'risk' and 'riskLevel' field names (from different prediction sources)
+    const currentRisk = (prediction.risk || prediction.riskLevel || 'unknown').toLowerCase();
     const currentTime = new Date();
 
     console.log(`[Alert Checker] Checking location: ${location}, current risk: ${currentRisk}`);
@@ -120,13 +120,23 @@ async function checkForAlerts(prediction) {
     
     const recentHighRisks = await Prediction.find({
       location: location,
-      riskLevel: { $in: ['HIGH', 'high'] },
-      predictedDate: {
-        $gte: timeWindowStart
-      },
+      $and: [
+        {
+          $or: [
+            { risk: { $in: ['HIGH', 'high'] } },
+            { riskLevel: { $in: ['HIGH', 'high'] } } // Support alternate field name
+          ]
+        },
+        {
+          $or: [
+            { predictedAt: { $gte: timeWindowStart } },
+            { predictedDate: { $gte: timeWindowStart } } // Support alternate field name
+          ]
+        }
+      ],
       _id: { $ne: prediction._id }, // Exclude current prediction
     })
-      .sort({ predictedDate: -1 })
+      .sort({ predictedAt: -1, predictedDate: -1 })
       .limit(ALERT_THRESHOLD - 1); // Get up to 1 previous HIGH (since we have current)
 
     console.log(`   Found ${recentHighRisks.length} previous HIGH predictions in time window`);

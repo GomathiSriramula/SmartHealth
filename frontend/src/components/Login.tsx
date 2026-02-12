@@ -2,7 +2,7 @@ import { useState } from "react";
 import Alert from "./Alert";
 
 interface LoginProps {
-  onLoginSuccess: (token: string, username: string) => void;
+  onLoginSuccess: (token: string, username: string, role: string) => void;
   onShowRegister: () => void;
 }
 
@@ -32,7 +32,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
       }
 
       const data = await res.json();
-      onLoginSuccess(data.token, email);
+      // Use username and role from server response
+      onLoginSuccess(data.token, data.username || email, data.role || 'USER');
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {

@@ -26,6 +26,7 @@ interface DashboardProps {
   onBackToLanding: () => void;
   token: string;
   username: string;
+  userRole: string;
   onLogout: () => void;
 }
 
@@ -43,11 +44,13 @@ const Dashboard: React.FC<DashboardProps> = ({
   onBackToLanding,
   token,
   username,
+  userRole,
   onLogout,
 }) => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview");
+  // Set default tab based on role - USER starts with alerts, ADMIN/OPERATOR with overview
+  const [activeTab, setActiveTab] = useState(userRole === 'USER' ? 'alerts' : 'overview');
   const [formData, setFormData] = useState({
     reporter_type: "",
     patient_age: "",
@@ -81,6 +84,8 @@ const Dashboard: React.FC<DashboardProps> = ({
         headers.Authorization = `Bearer ${token}`;
       }
 
+      console.log('🔄 Fetching reports for user:', username);
+      
       // Only fetch reports for the current user, with limit of 10,000
       const url = `${API_URL}/reports?reporter_id=${encodeURIComponent(username)}&limit=10000`;
       const res = await fetch(url, { 
@@ -89,8 +94,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
       if (!res.ok) throw new Error(`Error: ${res.status}`);
       const data = await res.json();
-      console.log('📊 Reports fetched for user', username, ':', data.length, 'reports'); // Debug log
+      console.log('📊 Reports fetched for user', username, ':', data.length, 'reports');
       setReports(data);
+      console.log('📊 Reports state updated. Total count:', data.length);
     } catch (err) {
       console.error('❌ Error fetching reports:', err);
       setReports([]);
@@ -353,28 +359,33 @@ const Dashboard: React.FC<DashboardProps> = ({
         {/* Sidebar */}
         <aside className="w-64 bg-white h-screen shadow-sm">
           <div className="p-6 space-y-2">
-            <TabButton
-              id="overview"
-              label="Overview"
-              icon={
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"
-                  ></path>
-                </svg>
-              }
-            />
-            <TabButton
-              id="reports"
-              label="Reports"
+            {/* Overview - Only ADMIN and OPERATOR */}
+            {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
+              <TabButton
+                id="overview"
+                label="Overview"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
+            {/* Reports - Only ADMIN and OPERATOR */}
+            {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
+              <TabButton
+                id="reports"
+                label="Reports"
               icon={
                 <svg
                   className="w-5 h-5"
@@ -390,26 +401,30 @@ const Dashboard: React.FC<DashboardProps> = ({
                   ></path>
                 </svg>
               }
-            />
-            <TabButton
-              id="submit"
-              label="Submit Report"
-              icon={
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 4v16m8-8H4"
-                  ></path>
-                </svg>
-              }
-            />
+              />
+            )}
+            {/* Submit Report - Only ADMIN and OPERATOR */}
+            {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
+              <TabButton
+                id="submit"
+                label="Submit Report"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 4v16m8-8H4"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
             <TabButton
               id="alerts"
               label="Alerts"
@@ -448,25 +463,28 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </svg>
               }
             />
-            <TabButton
-              id="csv-upload"
-              label="CSV Upload"
-              icon={
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                  ></path>
-                </svg>
-              }
-            />
+            {/* CSV Upload - Only ADMIN and OPERATOR */}
+            {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
+              <TabButton
+                id="csv-upload"
+                label="CSV Upload"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
             <TabButton
               id="predictions"
               label="ML Predictions"
@@ -857,8 +875,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
 
-          {/* Submit Report Tab */}
-          {activeTab === "submit" && (
+          {/* Submit Report Tab - Only ADMIN and OPERATOR */}
+          {activeTab === "submit" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
             <div className="space-y-6">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">
@@ -1151,26 +1169,29 @@ const Dashboard: React.FC<DashboardProps> = ({
                             {expandedAlerts.has(alert._id) && (
                               <div className="mt-4 pt-4 border-t border-current border-opacity-20">
                                 <p className="text-sm mb-3"><strong>Alert ID:</strong> {alert._id.slice(0, 12)}...</p>
-                                <div className="flex gap-2 flex-wrap">
-                                  {alert.status === "active" && (
-                                    <button
-                                      onClick={() => resolveAlert(alert._id)}
-                                      disabled={actionInProgress === alert._id}
-                                      className={`px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50`}
-                                    >
-                                      {actionInProgress === alert._id ? "Processing..." : "✅ Resolve"}
-                                    </button>
-                                  )}
-                                  {!alert.notificationSent && (
-                                    <button
-                                      onClick={() => resendNotification(alert._id)}
-                                      disabled={actionInProgress === alert._id}
-                                      className={`px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50`}
-                                    >
-                                      {actionInProgress === alert._id ? "Sending..." : "📧 Send Alert"}
-                                    </button>
-                                  )}
-                                </div>
+                                {/* Alert Actions - Only ADMIN and OPERATOR */}
+                                {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
+                                  <div className="flex gap-2 flex-wrap">
+                                    {alert.status === "active" && (
+                                      <button
+                                        onClick={() => resolveAlert(alert._id)}
+                                        disabled={actionInProgress === alert._id}
+                                        className={`px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50`}
+                                      >
+                                        {actionInProgress === alert._id ? "Processing..." : "✅ Resolve"}
+                                      </button>
+                                    )}
+                                    {!alert.notificationSent && (
+                                      <button
+                                        onClick={() => resendNotification(alert._id)}
+                                        disabled={actionInProgress === alert._id}
+                                        className={`px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 disabled:opacity-50`}
+                                      >
+                                        {actionInProgress === alert._id ? "Sending..." : "📧 Send Alert"}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1200,147 +1221,12 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
 
-          {/* Analytics Tab */}
-          {activeTab === "analytics" && (
-            <div className="space-y-6">
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">
-                  Analytics & Insights
-                </h1>
-                <p className="text-gray-600">
-                  Data-driven insights for disease prevention and resource
-                  allocation
-                </p>
-              </div>
-
-              <div className="grid lg:grid-cols-2 gap-6">
-                {/* Trend Analysis */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                    Case Trends
-                  </h3>
-                  <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg">
-                    <div className="text-center text-gray-500">
-                      <svg
-                        className="w-16 h-16 mx-auto mb-4 text-gray-300"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                        ></path>
-                      </svg>
-                      <p>Chart visualization would appear here</p>
-                      <p className="text-sm">
-                        (Requires chart library integration)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Geographic Distribution */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                    Geographic Hotspots
-                  </h3>
-                  <div className="h-64 flex items-center justify-center bg-gray-50 rounded-lg">
-                    <div className="text-center text-gray-500">
-                      <svg
-                        className="w-16 h-16 mx-auto mb-4 text-gray-300"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                        ></path>
-                      </svg>
-                      <p>Map visualization would appear here</p>
-                      <p className="text-sm">
-                        (Requires mapping library integration)
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Key Metrics */}
-              <div className="grid md:grid-cols-3 gap-6">
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                  <h4 className="font-semibold text-gray-900 mb-4">
-                    Most Common Symptoms
-                  </h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Diarrhea</span>
-                      <span className="font-medium">78%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Fever</span>
-                      <span className="font-medium">65%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Vomiting</span>
-                      <span className="font-medium">52%</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                  <h4 className="font-semibold text-gray-900 mb-4">
-                    Age Distribution
-                  </h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">0-18 years</span>
-                      <span className="font-medium">45%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">19-60 years</span>
-                      <span className="font-medium">40%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">60+ years</span>
-                      <span className="font-medium">15%</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                  <h4 className="font-semibold text-gray-900 mb-4">
-                    Response Efficiency
-                  </h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Avg Response Time</span>
-                      <span className="font-medium text-green-600">1.8min</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Cases Resolved</span>
-                      <span className="font-medium text-blue-600">89%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Prevention Rate</span>
-                      <span className="font-medium text-purple-600">94%</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* CSV Upload Tab */}
-          {activeTab === "csv-upload" && (
+          {/* CSV Upload Tab - Only ADMIN and OPERATOR */}
+          {activeTab === "csv-upload" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
             <CSVUpload 
               token={token} 
               onUploadSuccess={() => fetchReports(false)}
+              onSensorUploadSuccess={() => fetchAlerts()}
             />
           )}
 

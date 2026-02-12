@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const AuditLog = require("./models/AuditLog");
 
 const CaseReportSchema = new mongoose.Schema(
   {
@@ -72,9 +73,33 @@ const UserSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true },
   role: { type: String, enum: ['ADMIN', 'OPERATOR', 'USER'], default: 'USER' },
   locations: [{ type: String }], // Optional: locations user is assigned to (e.g., ["Plant A", "Plant B"])
+  adminLocation: {
+    // Optional: used only when role === "ADMIN"
+    state: String,
+    district: String,
+    village: String
+  },
   created_at: { type: Date, default: Date.now },
 });
 
+// Compound unique index: Ensure only ONE admin per village
+// Uses partial filter to only apply to ADMIN users
+UserSchema.index(
+  { 
+    'adminLocation.state': 1, 
+    'adminLocation.district': 1, 
+    'adminLocation.village': 1 
+  },
+  { 
+    unique: true,
+    partialFilterExpression: { 
+      role: 'ADMIN',
+      'adminLocation.village': { $exists: true, $ne: null }
+    },
+    name: 'unique_admin_per_village'
+  }
+);
+
 const User = mongoose.model("User", UserSchema, "users");
 
-module.exports = { CaseReport, SensorReading, Prediction, User };
+module.exports = { CaseReport, SensorReading, Prediction, User, AuditLog };

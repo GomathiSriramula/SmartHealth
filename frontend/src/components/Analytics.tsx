@@ -25,6 +25,8 @@ interface AnalyticsData {
   summary: {
     totalPredictions: number;
     recentPredictions: number;
+    totalCaseReports: number;
+    recentCaseReports: number;
     averageConfidence: number;
     timeRange: string;
     lastUpdated: string;
@@ -35,16 +37,32 @@ interface AnalyticsData {
     low: number;
   };
   predictionTypes: Record<string, number>;
+  symptomsDistribution: Array<{
+    symptom: string;
+    count: number;
+  }>;
+  demographics: {
+    ageGroups: Record<string, number>;
+    genderDistribution: Record<string, number>;
+  };
+  reporterTypes: Record<string, number>;
   timeSeriesData: Array<{
     date: string;
     high: number;
     medium: number;
     low: number;
     total: number;
+    caseReports: number;
   }>;
   topLocations: Array<{
     location: string;
     count: number;
+  }>;
+  geoClusters: Array<{
+    lat: number;
+    lng: number;
+    location: string;
+    symptoms: string[];
   }>;
   recentHighRisk: Array<{
     id: string;
@@ -53,6 +71,19 @@ interface AnalyticsData {
     confidence: number;
     date: string;
     details: string;
+  }>;
+  recentCaseReportsList: Array<{
+    id: string;
+    reporter_type: string;
+    reporter_id: string;
+    patient_age: number;
+    sex: string;
+    location: string;
+    lat: number;
+    lng: number;
+    symptoms: string[];
+    reported_at: string;
+    created_at: string;
   }>;
   confidenceDistribution: Record<string, number>;
   modelVersions: Record<string, number>;
@@ -74,6 +105,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [timeRange, setTimeRange] = useState('30');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [selectedView, setSelectedView] = useState<'all' | 'symptoms' | 'demographics' | 'locations'>('all');
 
   const API_URL = 'http://localhost:5000';
 
@@ -117,8 +149,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
 
     const interval = setInterval(() => {
       console.log('🔄 Auto-refreshing analytics...');
-      fetchAnalytics(false); // Don't show loading spinner on auto-refresh
-    }, 30000); // 30 seconds
+      fetchAnalytics(false);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [autoRefresh, fetchAnalytics]);
@@ -169,15 +201,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
     { name: 'Low Risk', value: data.riskDistribution.low, color: COLORS.low },
   ];
 
-  const predictionTypesData = Object.entries(data.predictionTypes).map(([type, count]) => ({
-    type: type.length > 25 ? type.substring(0, 25) + '...' : type,
-    count,
-  }));
-
-  const confidenceData = Object.entries(data.confidenceDistribution).map(([range, count]) => ({
-    range,
-    count,
-  }));
+  const showSymptoms = selectedView === 'all' || selectedView === 'symptoms';
+  const showDemographics = selectedView === 'all' || selectedView === 'demographics';
+  const showLocations = selectedView === 'all' || selectedView === 'locations';
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -187,7 +213,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">📊 Analytics Dashboard</h1>
             <p className="text-gray-600 mt-2">
-              Real-time insights and ML prediction analytics
+              Real-time insights from admin submissions and ML predictions
             </p>
           </div>
           
@@ -220,7 +246,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
-                  <span>Refresh Analytics</span>
+                  <span>Refresh</span>
                 </>
               )}
             </button>
@@ -228,8 +254,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
         </div>
 
         {/* Time range selector */}
-        <div className="mt-4 flex items-center space-x-2">
-          <span className="text-sm text-gray-600">Time Range:</span>
+        <div className="mt-4 flex items-center space-x-2 flex-wrap">
+          <span className="text-sm text-gray-600 font-medium">Time Range:</span>
           {['7', '14', '30', '60', '90'].map((range) => (
             <button
               key={range}
@@ -245,6 +271,29 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
           ))}
         </div>
 
+        {/* View selector */}
+        <div className="mt-4 flex items-center space-x-2 flex-wrap">
+          <span className="text-sm text-gray-600 font-medium">View:</span>
+          {[
+            { id: 'all', label: '📊 All Charts' },
+            { id: 'symptoms', label: '🦠 Symptoms Analysis' },
+            { id: 'demographics', label: '👥 Demographics' },
+            { id: 'locations', label: '🗺️ Geographic View' }
+          ].map((view) => (
+            <button
+              key={view.id}
+              onClick={() => setSelectedView(view.id as 'all' | 'symptoms' | 'demographics' | 'locations')}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                selectedView === view.id
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+              }`}
+            >
+              {view.label}
+            </button>
+          ))}
+        </div>
+
         {/* Last updated */}
         <p className="text-xs text-gray-500 mt-2">
           Last updated: {lastRefresh.toLocaleTimeString()} • 
@@ -254,29 +303,29 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
 
       {/* Summary Stats */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Predictions</p>
+              <p className="text-sm text-gray-600">Total Case Reports</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {data.summary.totalPredictions.toLocaleString()}
+                {(data.summary.totalCaseReports || 0).toLocaleString()}
               </p>
             </div>
-            <div className="bg-blue-100 p-3 rounded-lg">
-              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            <div className="bg-purple-100 p-3 rounded-lg">
+              <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">All time</p>
+          <p className="text-xs text-gray-500 mt-2">Submitted by admins</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Recent Predictions</p>
+              <p className="text-sm text-gray-600">Recent Reports</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {data.summary.recentPredictions.toLocaleString()}
+                {(data.summary.recentCaseReports || 0).toLocaleString()}
               </p>
             </div>
             <div className="bg-green-100 p-3 rounded-lg">
@@ -288,29 +337,29 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
           <p className="text-xs text-gray-500 mt-2">{data.summary.timeRange}</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Avg Confidence</p>
+              <p className="text-sm text-gray-600">ML Predictions</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">
-                {data.summary.averageConfidence.toFixed(1)}%
+                {(data.summary.totalPredictions || 0).toLocaleString()}
               </p>
             </div>
-            <div className="bg-purple-100 p-3 rounded-lg">
-              <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            <div className="bg-blue-100 p-3 rounded-lg">
+              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">Model accuracy</p>
+          <p className="text-xs text-gray-500 mt-2">Avg confidence: {(data.summary.averageConfidence || 0).toFixed(1)}%</p>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-600">High Risk Cases</p>
               <p className="text-3xl font-bold text-red-600 mt-2">
-                {data.riskDistribution.high}
+                {data.riskDistribution.high || 0}
               </p>
             </div>
             <div className="bg-red-100 p-3 rounded-lg">
@@ -323,138 +372,226 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
         </div>
       </div>
 
-      {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Risk Distribution Pie Chart */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Risk Level Distribution</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={riskChartData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={(entry: any) => 
-                  `${entry.name}: ${entry.value} (${(entry.percent * 100).toFixed(0)}%)`
-                }
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {riskChartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Prediction Types Bar Chart */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Prediction Types</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={predictionTypesData}>
+      {/* Time Series Chart - Always show */}
+      {selectedView === 'all' && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">📈 Activity Over Time</h2>
+          <ResponsiveContainer width="100%" height={400}>
+            <AreaChart data={data.timeSeriesData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="type" angle={-45} textAnchor="end" height={100} />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="count" fill={COLORS.primary} />
-            </BarChart>
+              <Legend />
+              <Area 
+                type="monotone" 
+                dataKey="caseReports" 
+                stroke="#8b5cf6" 
+                fill="#8b5cf6" 
+                fillOpacity={0.6}
+                name="Case Reports"
+              />
+              <Area 
+                type="monotone" 
+                dataKey="high" 
+                stackId="1"
+                stroke={COLORS.high} 
+                fill={COLORS.high} 
+                name="High Risk"
+              />
+              <Area 
+                type="monotone" 
+                dataKey="medium" 
+                stackId="1"
+                stroke={COLORS.medium} 
+                fill={COLORS.medium}
+                name="Medium Risk"
+              />
+              <Area 
+                type="monotone" 
+                dataKey="low" 
+                stackId="1"
+                stroke={COLORS.low} 
+                fill={COLORS.low}
+                name="Low Risk"
+              />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      )}
 
-      {/* Time Series Chart */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Predictions Over Time</h2>
-        <ResponsiveContainer width="100%" height={400}>
-          <AreaChart data={data.timeSeriesData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Area 
-              type="monotone" 
-              dataKey="high" 
-              stackId="1"
-              stroke={COLORS.high} 
-              fill={COLORS.high} 
-              name="High Risk"
-            />
-            <Area 
-              type="monotone" 
-              dataKey="medium" 
-              stackId="1"
-              stroke={COLORS.medium} 
-              fill={COLORS.medium}
-              name="Medium Risk"
-            />
-            <Area 
-              type="monotone" 
-              dataKey="low" 
-              stackId="1"
-              stroke={COLORS.low} 
-              fill={COLORS.low}
-              name="Low Risk"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Charts Grid */}
+      {showSymptoms && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Risk Distribution Pie Chart */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">⚠️ Risk Level Distribution</h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={riskChartData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  label={(entry: any) => 
+                    `${entry.name}: ${entry.value} (${(entry.percent * 100).toFixed(0)}%)`
+                  }
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {riskChartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Top Symptoms Bar Chart */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">🦠 Most Common Symptoms</h2>
+            {data.symptomsDistribution && data.symptomsDistribution.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={data.symptomsDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="symptom" angle={-45} textAnchor="end" height={100} tick={{ fontSize: 11 }} />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="count" fill={COLORS.accent} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-gray-500">
+                <p>No symptom data available</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Demographics Grid */}
+      {showDemographics && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Age Groups Chart */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">👶 Age Distribution</h2>
+            {data.demographics && data.demographics.ageGroups ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={Object.entries(data.demographics.ageGroups).map(([age, count]) => ({ age, count }))}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="age" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="count" fill={COLORS.primary} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-gray-500">
+                <p>No age data available</p>
+              </div>
+            )}
+          </div>
+
+          {/* Gender Distribution Pie Chart */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">👫 Gender Distribution</h2>
+            {data.demographics && data.demographics.genderDistribution ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={Object.entries(data.demographics.genderDistribution).map(([name, value]) => ({ 
+                      name: name === 'M' ? 'Male' : name === 'F' ? 'Female' : 'Other', 
+                      value 
+                    }))}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    label={(entry: any) => 
+                      entry.value > 0 ? `${entry.name}: ${entry.value} (${(entry.percent * 100).toFixed(0)}%)` : null
+                    }
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    <Cell fill="#3b82f6" />
+                    <Cell fill="#ec4899" />
+                    <Cell fill="#8b5cf6" />
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[300px] text-gray-500">
+                <p>No gender data available</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bottom Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Top Locations */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Top Affected Locations</h2>
-          {data.topLocations.length > 0 ? (
-            <div className="space-y-3">
-              {data.topLocations.map((location, index) => (
-                <div key={index} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <span className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                      index === 0 ? 'bg-yellow-100 text-yellow-700' :
-                      index === 1 ? 'bg-gray-100 text-gray-700' :
-                      index === 2 ? 'bg-orange-100 text-orange-700' :
-                      'bg-blue-100 text-blue-700'
-                    }`}>
-                      {index + 1}
-                    </span>
-                    <span className="text-gray-700">{location.location}</span>
+      {showLocations && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Top Locations */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">📍 Top Affected Locations</h2>
+            {data.topLocations.length > 0 ? (
+              <div className="space-y-3">
+                {data.topLocations.map((location, index) => (
+                  <div key={index} className="flex items-center justify-between hover:bg-gray-50 p-2 rounded transition-colors">
+                    <div className="flex items-center space-x-3">
+                      <span className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                        index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                        index === 1 ? 'bg-gray-100 text-gray-700' :
+                        index === 2 ? 'bg-orange-100 text-orange-700' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>
+                        {index + 1}
+                      </span>
+                      <span className="text-gray-700">{location.location}</span>
+                    </div>
+                    <span className="font-semibold text-gray-900">{location.count} cases</span>
                   </div>
-                  <span className="font-semibold text-gray-900">{location.count} cases</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-8">No location data available</p>
-          )}
-        </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-8">No location data available</p>
+            )}
+          </div>
 
-        {/* Confidence Distribution */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Confidence Score Distribution</h2>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={confidenceData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="range" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="count" fill={COLORS.secondary} />
-            </BarChart>
-          </ResponsiveContainer>
+          {/* Reporter Types */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">👨‍⚕️ Report Sources</h2>
+            {data.reporterTypes && Object.keys(data.reporterTypes).length > 0 ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={Object.entries(data.reporterTypes).map(([type, count]) => ({ type, count }))}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="type" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="count" fill={COLORS.secondary} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-[250px] text-gray-500">
+                <p>No reporter data available</p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Recent High Risk Alerts */}
-      {data.recentHighRisk.length > 0 && (
+      {data.recentHighRisk.length > 0 && selectedView === 'all' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">🚨 Recent High-Risk Alerts</h2>
           <div className="space-y-4">
             {data.recentHighRisk.map((alert) => (
-              <div key={alert.id} className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-lg">
+              <div key={alert.id} className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-lg hover:bg-red-100 transition-colors">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-2">
@@ -467,6 +604,45 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
                     <div className="flex items-center space-x-4 text-xs text-gray-500">
                       <span>📍 {alert.location}</span>
                       <span>📅 {new Date(alert.date).toLocaleString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Case Reports */}
+      {data.recentCaseReportsList && data.recentCaseReportsList.length > 0 && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 Recent Case Reports from Admins</h2>
+          <div className="space-y-4">
+            {data.recentCaseReportsList.map((report) => (
+              <div key={report.id} className="border-l-4 border-blue-500 bg-blue-50 p-4 rounded-r-lg hover:bg-blue-100 transition-colors">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2 mb-2 flex-wrap">
+                      <span className="font-semibold text-gray-900">
+                        Patient: {report.sex === 'M' ? '👨' : report.sex === 'F' ? '👩' : '👤'} Age {report.patient_age}
+                      </span>
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
+                        {report.reporter_type}
+                      </span>
+                      <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                        ID: {report.reporter_id}
+                      </span>
+                    </div>
+                    <div className="mb-2">
+                      <span className="text-sm font-medium text-gray-700">Symptoms: </span>
+                      <span className="text-sm text-gray-600">
+                        {report.symptoms.length > 0 ? report.symptoms.join(', ') : 'None reported'}
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-4 text-xs text-gray-500 flex-wrap">
+                      <span>📍 {report.location}</span>
+                      <span>🌐 Lat: {report.lat.toFixed(4)}, Lng: {report.lng.toFixed(4)}</span>
+                      <span>📅 {new Date(report.reported_at).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>

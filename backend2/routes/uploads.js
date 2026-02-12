@@ -6,7 +6,12 @@ const fs = require("fs");
 const path = require("path");
 const { CaseReport, SensorReading, Prediction } = require("../models");
 const { authMiddleware } = require("../utils/auth");
+const locationGuard = require("../utils/locationGuard");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
+const { notifyAlertCreation } = require("../utils/mailer");
+const { logAudit } = require("../utils/auditLogger");
+const { checkForAlerts } = require("../services/alertChecker");
+const { triggerPrediction } = require("../services/predictionTrigger");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -110,12 +115,24 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     console.log(`🚨 [CSV Bulk Upload] ${highRiskCases.length} HIGH RISK cases detected out of ${reports.length} total! - Triggering prediction...`);
     
     // Get location info from high-risk cases
-    const locations = highRiskCases
-      .map(c => c.report.lat && c.report.lng ? `(${c.report.lat.toFixed(4)}, ${c.report.lng.toFixed(4)})` : null)
-      .filter(Boolean);
-    const uniqueLocations = [...new Set(locations)];
-    const locationStr = uniqueLocations.slice(0, 3).join(', ') + 
-                       (uniqueLocations.length > 3 ? ` and ${uniqueLocations.length - 3} more` : '');
+    // Prioritize location field (village name) over coordinates for proper alert matching
+    const locationField = highRiskCases.find(c => c.report.location)?.report.location;
+    let locationStr;
+    
+    if (locationField) {
+      // Use village/location name if available (critical for alert matching)
+      locationStr = locationField;
+      console.log(`📍 [CSV Bulk Upload] Using location field: ${locationStr}`);
+    } else {
+      // Fallback to coordinates if no location field
+      const locations = highRiskCases
+        .map(c => c.report.lat && c.report.lng ? `(${c.report.lat.toFixed(4)}, ${c.report.lng.toFixed(4)})` : null)
+        .filter(Boolean);
+      const uniqueLocations = [...new Set(locations)];
+      locationStr = uniqueLocations.slice(0, 3).join(', ') + 
+                   (uniqueLocations.length > 3 ? ` and ${uniqueLocations.length - 3} more` : 'Multiple locations');
+      console.log(`📍 [CSV Bulk Upload] Using coordinates: ${locationStr}`);
+    }
     
     // Calculate average confidence
     const avgConfidence = highRiskCases.reduce((sum, c) => sum + c.analysis.confidence, 0) / highRiskCases.length;
@@ -158,6 +175,40 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     // Save prediction
     const prediction = await Prediction.create(predictionData);
     console.log(`✅ [CSV Bulk Upload] Prediction created: ${prediction._id}`);
+
+    // 🚨 Check for alerts from this HIGH RISK prediction
+    let alertResult = null;
+    try {
+      // Convert prediction format for alert checker (needs 'risk' not 'riskLevel')
+      const predictionForAlert = {
+        ...prediction.toObject(),
+        risk: prediction.riskLevel, // Convert riskLevel to risk for alert checker
+        predictedAt: prediction.predictedDate, // Convert predictedDate to predictedAt
+      };
+
+      console.log(`📡 Calling checkForAlerts for CSV upload prediction...`);
+      alertResult = await checkForAlerts(predictionForAlert);
+      console.log(`📡 checkForAlerts returned:`, alertResult);
+
+      if (alertResult && alertResult.action === 'created' && alertResult.alert) {
+        console.log(`🚨 [CSV Alert] CREATED: ${alertResult.message}`);
+
+        // Send alert notification
+        try {
+          const notifyResult = await notifyAlertCreation(alertResult.alert);
+          console.log(`📧 [CSV Alert] Notification sent: ${notifyResult.message}`);
+        } catch (notifyError) {
+          console.error(`⚠️  [CSV Alert] Notification failed (non-blocking): ${notifyError.message}`);
+        }
+      } else if (alertResult && alertResult.action === 'resolved' && alertResult.alert) {
+        console.log(`✅ [CSV Alert] RESOLVED: ${alertResult.message}`);
+      } else if (alertResult) {
+        console.log(`ℹ️  [CSV Alert] ${alertResult.message}`);
+      }
+    } catch (alertError) {
+      console.error(`⚠️  [CSV Alert] Check failed (non-blocking): ${alertError.message}`);
+      console.error(alertError);
+    }
     
     // Send email notification
     console.log(`📧 [CSV Bulk Upload] Sending email alerts to users...`);
@@ -170,11 +221,94 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     return {
       prediction,
       notification: notificationResult,
-      highRiskCount: highRiskCases.length
+      highRiskCount: highRiskCases.length,
+      alert: alertResult
     };
     
   } catch (error) {
     console.error(`❌ Error analyzing CSV reports:`, error);
+    return null;
+  }
+}
+
+/**
+ * Analyze sensor readings and trigger ML predictions for water quality
+ */
+async function analyzeSensorReadingsAndPredict(sensorReadings) {
+  try {
+    if (!sensorReadings || sensorReadings.length === 0) return null;
+    
+    console.log(`🌊 [CSV Sensor Upload] Processing ${sensorReadings.length} sensor readings for ML predictions...`);
+    
+    let predictionsCreated = 0;
+    let alertsCreated = 0;
+    const predictions = [];
+    
+    // Process each sensor reading that has water quality data
+    for (const reading of sensorReadings) {
+      if (reading.pH !== null && reading.pH !== undefined && 
+          reading.turbidity !== null && reading.turbidity !== undefined) {
+        
+        try {
+          const waterQualityData = {
+            pH: reading.pH,
+            Turbidity: reading.turbidity,
+            Dissolved_Oxygen: reading.conductivity || 8.0 // Use conductivity as proxy or default
+          };
+          
+          const location = reading.location || `Sensor ${reading.sensor_id}`;
+          const prediction = await triggerPrediction(waterQualityData, { 
+            location, 
+            source: 'csv_sensor_upload',
+            sensorId: reading.sensor_id
+          });
+          
+          if (prediction) {
+            predictionsCreated++;
+            predictions.push(prediction);
+            console.log(`✅ [CSV Sensor] Prediction for ${reading.sensor_id}: ${prediction.risk} risk`);
+            
+            // Check for alerts if HIGH risk
+            if (prediction.risk === 'high' || prediction.riskLevel === 'HIGH') {
+              try {
+                const alertResult = await checkForAlerts(prediction);
+                
+                if (alertResult.action === 'created') {
+                  alertsCreated++;
+                  console.log(`🚨 [CSV Sensor Alert] CREATED: ${alertResult.message}`);
+                  
+                  // Send alert notification
+                  try {
+                    await notifyAlertCreation(alertResult.alert);
+                  } catch (notifyError) {
+                    console.error(`⚠️  [CSV Sensor Alert] Notification failed: ${notifyError.message}`);
+                  }
+                } else if (alertResult.action === 'resolved') {
+                  console.log(`✅ [CSV Sensor Alert] RESOLVED: ${alertResult.message}`);
+                } else {
+                  console.log(`ℹ️  [CSV Sensor Alert] ${alertResult.message}`);
+                }
+              } catch (alertError) {
+                console.error(`⚠️  [CSV Sensor Alert] Check failed: ${alertError.message}`);
+              }
+            }
+          }
+        } catch (predError) {
+          console.error(`❌ [CSV Sensor] Prediction failed for ${reading.sensor_id}:`, predError.message);
+        }
+      }
+    }
+    
+    console.log(`✅ [CSV Sensor Upload] Complete: ${predictionsCreated} predictions, ${alertsCreated} alerts`);
+    
+    return {
+      predictionsCount: predictionsCreated,
+      alertsCount: alertsCreated,
+      predictions: predictions
+    };
+    
+  } catch (error) {
+    console.error(`❌ Error analyzing sensor readings:`, error);
     return null;
   }
 }
@@ -185,8 +319,14 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
  * 
  * Expected CSV columns:
  * reporter_type, reporter_id, patient_age, sex, lat, lng, symptoms, reported_at
+ * Optional: location (required for ADMIN users - must match their assigned village)
  * 
- * Note: reporter_id will be overridden with the authenticated user's username
+ * Notes:
+ * - reporter_id will be overridden with the authenticated user's username
+ * - For ADMIN users: Every row's location must match the admin's assigned village
+ *   If any row has a different location, the entire upload is rejected
+ * - USER role has no location restrictions
+ * - locationGuard is NOT used here because location validation happens during CSV parsing
  */
 router.post("/upload/case-reports", authMiddleware, upload.single("file"), async (req, res) => {
   try {
@@ -199,6 +339,7 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
     const results = [];
     const errors = [];
     let lineNumber = 1; // Start at 1 for header
+    let adminLocationError = null; // Track ADMIN location validation failure
 
     console.log('📤 CSV Upload: User', authenticatedUsername, 'uploading case reports');
 
@@ -233,6 +374,11 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             symptoms: symptoms,
             reported_at: new Date(data.reported_at),
           };
+
+          // Add location field if present in CSV (important for alert matching)
+          if (data.location && data.location.trim()) {
+            caseReport.location = data.location.trim();
+          }
 
           // Validate data types
           if (isNaN(caseReport.patient_age)) {
@@ -271,6 +417,59 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             return;
           }
 
+          // ADMIN location validation
+          if (req.user.role === 'ADMIN') {
+            const adminLocation = req.user.adminLocation;
+            
+            // Admin must have location assigned
+            if (!adminLocation || !adminLocation.village) {
+              errors.push({
+                line: lineNumber,
+                error: "Admin location not configured on server",
+                data: data,
+              });
+              return;
+            }
+
+            // Extract location from CSV row (can be in 'location' column or use lat/lng)
+            const rowLocation = data.location ? data.location.trim() : null;
+            
+            if (!rowLocation) {
+              errors.push({
+                line: lineNumber,
+                error: "Location field required for admin uploads",
+                data: data,
+              });
+              return;
+            }
+
+            // Normalize for comparison (lowercase and trim whitespace)
+            const adminVillage = adminLocation.village.toLowerCase().trim();
+            const submittedLocation = rowLocation.toLowerCase().trim();
+
+            // CRITICAL: If ADMIN location mismatch, record error and abort all processing
+            if (adminVillage !== submittedLocation) {
+              // Set adminLocationError to prevent ANY database insertion
+              if (!adminLocationError) {
+                adminLocationError = {
+                  line: lineNumber,
+                  expectedVillage: adminLocation.village,
+                  receivedVillage: rowLocation
+                };
+              }
+              errors.push({
+                line: lineNumber,
+                error: `Location mismatch: submitted '${rowLocation}' but admin is assigned to '${adminLocation.village}'`,
+                data: data,
+                submittedLocation: rowLocation,
+                allowedLocation: adminLocation.village
+              });
+              return;
+            }
+
+            // Location validation passed for ADMIN
+          }
+
           results.push(caseReport);
         } catch (error) {
           errors.push({
@@ -282,6 +481,22 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
       })
       .on("end", async () => {
         try {
+          // 🔐 CRITICAL: If ADMIN user had location validation error, REJECT immediately without inserting
+          if (adminLocationError) {
+            // Clean up file before returning error
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+            return res.status(403).json({
+              error: "Unauthorized location in CSV",
+              detail: `Row ${adminLocationError.line} location mismatch`,
+              rowNumber: adminLocationError.line,
+              expectedVillage: adminLocationError.expectedVillage,
+              receivedVillage: adminLocationError.receivedVillage,
+              message: `Admin assigned to '${adminLocationError.expectedVillage}' but row ${adminLocationError.line} submitted '${adminLocationError.receivedVillage}'. No data inserted.`
+            });
+          }
+
           // Insert all valid records into database
           let inserted = 0;
           let insertedRecords = [];
@@ -289,6 +504,19 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             insertedRecords = await CaseReport.insertMany(results, { ordered: false });
             inserted = insertedRecords.length;
           }
+
+          // Log audit event for UPLOAD_CSV action
+          await logAudit({
+            action: 'UPLOAD_CSV',
+            req,
+            village: req.user.adminLocation?.village || null,
+            metadata: {
+              totalRows: lineNumber - 1,
+              successful: inserted,
+              failed: errors.length,
+              fileName: req.file.originalname,
+            },
+          });
 
           // 🚨 NEW: Analyze uploaded reports for HIGH RISK cases
           const analysisResult = await analyzeCSVReportsAndNotify(results, authenticatedUsername);
@@ -312,7 +540,12 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
               highRiskCases: analysisResult.highRiskCount,
               emailsSent: analysisResult.notification?.count || 0,
               predictionId: analysisResult.prediction?._id,
-              message: `🚨 ${analysisResult.highRiskCount} HIGH RISK cases detected - Email alerts sent to ${analysisResult.notification?.count || 0} users`
+              message: `🚨 ${analysisResult.highRiskCount} HIGH RISK cases detected - Email alerts sent to ${analysisResult.notification?.count || 0} users`,
+              alert: analysisResult.alert ? {
+                action: analysisResult.alert.action,
+                message: analysisResult.alert.message,
+                alertId: analysisResult.alert.alert ? analysisResult.alert.alert._id : null,
+              } : null
             };
           }
 
@@ -396,6 +629,11 @@ router.post("/upload/sensor-readings", upload.single("file"), async (req, res) =
             conductivity: data.conductivity ? parseFloat(data.conductivity) : null,
           };
 
+          // Add location field if present in CSV (important for alert matching)
+          if (data.location && data.location.trim()) {
+            sensorReading.location = data.location.trim();
+          }
+
           // Validate data
           if (isNaN(sensorReading.lat) || isNaN(sensorReading.lng)) {
             errors.push({
@@ -427,14 +665,31 @@ router.post("/upload/sensor-readings", upload.single("file"), async (req, res) =
       .on("end", async () => {
         try {
           let inserted = 0;
+          let insertedRecords = [];
           if (results.length > 0) {
-            const insertResult = await SensorReading.insertMany(results, { ordered: false });
-            inserted = insertResult.length;
+            insertedRecords = await SensorReading.insertMany(results, { ordered: false });
+            inserted = insertedRecords.length;
+          }
+
+          // 🌊 NEW: Trigger ML predictions for sensor readings with water quality data
+          let mlAnalysis = null;
+          if (insertedRecords.length > 0) {
+            // Convert MongoDB documents to plain objects for processing
+            const recordsToAnalyze = insertedRecords.map(record => ({
+              sensor_id: record.sensor_id,
+              pH: record.pH,
+              turbidity: record.turbidity,
+              conductivity: record.conductivity,
+              location: record.location,
+              lat: record.lat,
+              lng: record.lng
+            }));
+            mlAnalysis = await analyzeSensorReadingsAndPredict(recordsToAnalyze);
           }
 
           fs.unlinkSync(filePath);
 
-          res.json({
+          const response = {
             message: "CSV file processed successfully",
             summary: {
               totalRows: lineNumber - 1,
@@ -442,7 +697,18 @@ router.post("/upload/sensor-readings", upload.single("file"), async (req, res) =
               failed: errors.length,
             },
             errors: errors.length > 0 ? errors.slice(0, 10) : [],
-          });
+          };
+
+          // Include ML prediction info if predictions were made
+          if (mlAnalysis && mlAnalysis.predictionsCount > 0) {
+            response.mlAnalysis = {
+              predictionsCreated: mlAnalysis.predictionsCount,
+              alertsCreated: mlAnalysis.alertsCount,
+              message: `🎯 ${mlAnalysis.predictionsCount} ML predictions created, ${mlAnalysis.alertsCount} alerts triggered`
+            };
+          }
+
+          res.json(response);
         } catch (dbError) {
           console.error("Database error:", dbError);
           if (fs.existsSync(filePath)) {

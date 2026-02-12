@@ -8,6 +8,7 @@
 const express = require('express');
 const router = express.Router();
 const Alert = require('../models/Alert');
+const { logAudit } = require('../utils/auditLogger');
 const {
   getAlertModel,
   createHighRiskAlert,
@@ -197,6 +198,31 @@ router.post('/:id/resolve', async (req, res) => {
     const { userId = 'system', resolutionNotes = '' } = req.body;
 
     const alert = await resolveAlert(id, userId, resolutionNotes);
+
+    // Log audit event for RESOLVE_ALERT action
+    // Use req.user if available, otherwise create minimal user object for audit logging
+    const auditReq = req.user ? req : {
+      user: {
+        username: userId,
+        role: 'SYSTEM',
+        adminLocation: null,
+      },
+      ip: req.ip || null,
+      connection: req.connection,
+      socket: req.socket,
+    };
+
+    await logAudit({
+      action: 'RESOLVE_ALERT',
+      req: auditReq,
+      village: alert.location,
+      entityId: alert._id,
+      metadata: {
+        riskLevel: alert.riskLevel,
+        location: alert.location,
+        resolutionNotes: resolutionNotes,
+      },
+    });
 
     return res.json({
       success: true,

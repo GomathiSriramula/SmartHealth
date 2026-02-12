@@ -1,10 +1,51 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface LandingPageProps {
   onGetStarted: () => void;
 }
 
+interface LandingStats {
+  healthyAreas: number;
+  atRisk: number;
+  alertZones: number;
+  totalMonitored: number;
+}
+
 const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
+  const [stats, setStats] = useState<LandingStats>({
+    healthyAreas: 87,
+    atRisk: 10,
+    alertZones: 3,
+    totalMonitored: 0
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchLandingStats();
+  }, []);
+
+  const fetchLandingStats = async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:5000/predictions/landing-stats');
+      if (!response.ok) {
+        throw new Error('Failed to fetch stats');
+      }
+      const data = await response.json();
+      console.log('Landing stats received:', data);
+      setStats({
+        healthyAreas: data.healthyAreas ?? 87,
+        atRisk: data.atRisk ?? 10,
+        alertZones: data.alertZones ?? 3,
+        totalMonitored: data.totalMonitored ?? 0
+      });
+    } catch (error) {
+      console.error('Error fetching landing stats:', error);
+      // Keep default values on error
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-green-50">
       {/* Navigation */}
@@ -57,15 +98,21 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-green-100 p-4 rounded-lg">
                     <div className="text-green-600 font-semibold">Healthy Areas</div>
-                    <div className="text-2xl font-bold text-green-800">87%</div>
+                    <div className="text-2xl font-bold text-green-800">
+                      {loading ? '...' : `${stats?.healthyAreas ?? 87}%`}
+                    </div>
                   </div>
                   <div className="bg-yellow-100 p-4 rounded-lg">
                     <div className="text-yellow-600 font-semibold">At Risk</div>
-                    <div className="text-2xl font-bold text-yellow-800">10%</div>
+                    <div className="text-2xl font-bold text-yellow-800">
+                      {loading ? '...' : `${stats?.atRisk ?? 10}%`}
+                    </div>
                   </div>
                   <div className="bg-red-100 p-4 rounded-lg">
                     <div className="text-red-600 font-semibold">Alert Zones</div>
-                    <div className="text-2xl font-bold text-red-800">3%</div>
+                    <div className="text-2xl font-bold text-red-800">
+                      {loading ? '...' : `${stats?.alertZones ?? 3}%`}
+                    </div>
                   </div>
                   <div className="bg-blue-100 p-4 rounded-lg">
                     <div className="text-blue-600 font-semibold">Monitored</div>

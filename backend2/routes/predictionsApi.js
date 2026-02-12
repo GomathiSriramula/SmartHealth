@@ -13,12 +13,37 @@ const Prediction = require('../models/Prediction');
 const mlClient = require('../services/mlClient');
 const { checkForAlerts } = require('../services/alertChecker');
 const { sendAlertNotification } = require('../services/alertNotifier');
+const { authMiddleware } = require('../utils/auth');
+const locationGuard = require('../utils/locationGuard');
+
+/**
+ * Helper function: Apply role-based location filtering
+ * ADMIN users can only see records from their assigned village
+ * USER and OPERATOR users can see all records
+ */
+function applyLocationFilter(userRole, adminLocation) {
+  const filter = {};
+  if (userRole === 'ADMIN') {
+    if (!adminLocation || !adminLocation.village) {
+      throw new Error('Admin location not configured');
+    }
+    filter.location = new RegExp(`^${adminLocation.village}$`, 'i');
+  }
+  return filter;
+}
 
 /**
  * POST /predictions
  * Create a prediction for water quality data
+ * 
+ * SECURITY NOTE:
+ * - Requires authentication (Bearer token or x-api-key)
+ * - ADMIN users restricted to their assigned village location
+ * - USER and OPERATOR roles have no location restrictions
+ * - Location field validated against user's role and assignment
+ * - Returns 401 if unauthenticated, 403 if location unauthorized
  */
-router.post('/predictions', async (req, res) => {
+router.post('/predictions', authMiddleware, locationGuard(), async (req, res) => {
   try {
     const { pH, Turbidity, Dissolved_Oxygen, location, source } = req.body;
 
@@ -103,12 +128,31 @@ router.post('/predictions', async (req, res) => {
 /**
  * GET /predictions
  * List recent predictions with optional filtering
+ * 
+ * Role-based filtering:
+ * - ADMIN: Returns only predictions from their assigned village
+ * - USER/OPERATOR: Returns predictions from all villages
  */
-router.get('/predictions', async (req, res) => {
+router.get('/predictions', authMiddleware, async (req, res) => {
   try {
     const { risk, limit = 50, skip = 0 } = req.query;
+    const userRole = req.user.role || 'USER';
+    const adminLocation = req.user.adminLocation;
 
     const query = {};
+    
+    // Apply role-based location filtering
+    if (userRole === 'ADMIN') {
+      if (!adminLocation || !adminLocation.village) {
+        return res.status(500).json({
+          error: 'Admin location not configured',
+          detail: 'Admin user is missing location assignment'
+        });
+      }
+      query.location = new RegExp(`^${adminLocation.village}$`, 'i');
+    }
+    // USER and OPERATOR: No location filter (see all records)
+    
     if (risk) {
       query.risk = risk.toUpperCase();
     }
@@ -140,13 +184,38 @@ router.get('/predictions', async (req, res) => {
 /**
  * GET /predictions/:id
  * Get details of a specific prediction
+ * 
+ * Role-based access control:
+ * - ADMIN: Can only access predictions from their assigned village (403 if different village)
+ * - USER/OPERATOR: Can access any prediction
  */
-router.get('/predictions/:id', async (req, res) => {
+router.get('/predictions/:id', authMiddleware, async (req, res) => {
   try {
     const prediction = await Prediction.findById(req.params.id).lean();
 
     if (!prediction) {
       return res.status(404).json({ error: 'Prediction not found' });
+    }
+
+    // Apply role-based access control
+    const userRole = req.user.role || 'USER';
+    if (userRole === 'ADMIN') {
+      const adminLocation = req.user.adminLocation;
+      if (!adminLocation || !adminLocation.village) {
+        return res.status(500).json({
+          error: 'Admin location not configured',
+          detail: 'Admin user is missing location assignment'
+        });
+      }
+      // Check if prediction's location matches admin's village (case-insensitive)
+      const adminVillage = adminLocation.village.toLowerCase().trim();
+      const predictionLocation = (prediction.location || '').toLowerCase().trim();
+      if (adminVillage !== predictionLocation) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          detail: `You can only access predictions from your assigned village (${adminLocation.village})`
+        });
+      }
     }
 
     return res.json({
@@ -166,12 +235,34 @@ router.get('/predictions/:id', async (req, res) => {
 /**
  * GET /predictions/stats/summary
  * Get summary statistics
+ * 
+ * Role-based statistics:
+ * - ADMIN: Returns statistics only for predictions in their assigned village
+ * - USER/OPERATOR: Returns statistics for all predictions
  */
-router.get('/predictions/stats/summary', async (req, res) => {
+router.get('/predictions/stats/summary', authMiddleware, async (req, res) => {
   try {
-    const total = await Prediction.countDocuments();
+    const userRole = req.user.role || 'USER';
+    const adminLocation = req.user.adminLocation;
+    
+    let query = {};
+    
+    // Apply role-based location filtering
+    if (userRole === 'ADMIN') {
+      if (!adminLocation || !adminLocation.village) {
+        return res.status(500).json({
+          error: 'Admin location not configured',
+          detail: 'Admin user is missing location assignment'
+        });
+      }
+      query.location = new RegExp(`^${adminLocation.village}$`, 'i');
+    }
+    // USER and OPERATOR: No location filter (see statistics for all records)
+    
+    const total = await Prediction.countDocuments(query);
     
     const byCertainty = await Prediction.aggregate([
+      { $match: query },
       {
         $group: {
           _id: '$risk',

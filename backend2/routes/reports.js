@@ -6,6 +6,7 @@ const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { checkForAlerts } = require("../services/alertChecker");
 
 const { authMiddleware } = require("../utils/auth");
+const locationGuard = require("../utils/locationGuard");
 
 // Debug endpoint
 router.post("/reports/debug", express.json(), (req, res) => {
@@ -251,7 +252,7 @@ router.post("/report", authMiddleware, async (req, res) => {
   }
 });
 
-router.post("/reports", authMiddleware, async (req, res) => {
+router.post("/reports", authMiddleware, locationGuard(), async (req, res) => {
   try {
     const obj = await normalizeAndCreateReport(req.body);
     await publish("case_reports", { id: obj._id });

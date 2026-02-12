@@ -11,6 +11,8 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
+const { authMiddleware } = require('../utils/auth');
+const locationGuard = require('../utils/locationGuard');
 const {
   predictWaterQuality,
   predictWaterQualityBatch,
@@ -85,6 +87,12 @@ try {
  * POST /ml-predictions/predict
  * Make a single prediction based on water quality measurements
  * 
+ * SECURITY NOTE (Academic Project Design):
+ * - This endpoint is intentionally secured with authentication and role-based location validation.
+ * - ADMIN users are restricted to their assigned village location.
+ * - USER and OPERATOR roles have no location restrictions.
+ * - This design choice was made to keep the system simple and safe for an academic monitoring project.
+ * 
  * Request body:
  * {
  *   "pH": 7.2,
@@ -95,7 +103,7 @@ try {
  *   "lng": -74.0060
  * }
  */
-router.post('/predict', async (req, res) => {
+router.post('/predict', authMiddleware, locationGuard(), async (req, res) => {
   try {
     const {
       pH,

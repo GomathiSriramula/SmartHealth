@@ -6,6 +6,7 @@ const { triggerPrediction } = require("../services/predictionTrigger");
 const { checkForAlerts } = require("../services/alertChecker");
 
 const { authMiddleware } = require("../utils/auth");
+const locationGuard = require("../utils/locationGuard");
 
 /**
  * Helper to trigger ML prediction for water quality data
@@ -50,7 +51,7 @@ async function asyncTriggerPrediction(sensorData) {
   }
 }
 
-router.post("/sensor", authMiddleware, async (req, res) => {
+router.post("/sensor", authMiddleware, locationGuard(), async (req, res) => {
   try {
     const body = Object.assign({}, req.body);
     if (typeof body.reading_at === "string") {
@@ -72,7 +73,7 @@ router.post("/sensor", authMiddleware, async (req, res) => {
   }
 });
 
-router.post("/sensors", authMiddleware, async (req, res) => {
+router.post("/sensors", authMiddleware, locationGuard(), async (req, res) => {
   try {
     const body = Object.assign({}, req.body);
     if (typeof body.reading_at === "string") {
