@@ -158,6 +158,7 @@ const Register: React.FC<RegisterProps> = ({
               disabled={loading}
             >
               <option value="USER">User</option>
+              <option value="OPERATOR">Operator</option>
               <option value="ADMIN">Admin</option>
             </select>
           </div>

@@ -119,7 +119,7 @@ router.post("/auth/login", async (req, res) => {
       role: user.role || 'USER',
       locations: user.locations || []
     });
-    return res.json({ token, username: user.username });
+    return res.json({ token, username: user.username, role: user.role || 'USER' });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: "login failed", detail: e.message });

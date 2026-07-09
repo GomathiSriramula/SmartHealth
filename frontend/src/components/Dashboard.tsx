@@ -60,6 +60,10 @@ const Dashboard: React.FC<DashboardProps> = ({
     symptoms: [] as string[],
     reported_at: "",
   });
+
+  useEffect(() => {
+    setActiveTab(userRole === 'USER' ? 'alerts' : 'overview');
+  }, [userRole]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   
