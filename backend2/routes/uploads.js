@@ -339,8 +339,6 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
     const results = [];
     const errors = [];
     let lineNumber = 1; // Start at 1 for header
-    let adminLocationError = null; // Track ADMIN location validation failure
-
     console.log('📤 CSV Upload: User', authenticatedUsername, 'uploading case reports');
 
     // Parse CSV file
@@ -417,59 +415,6 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             return;
           }
 
-          // ADMIN location validation
-          if (req.user.role === 'ADMIN') {
-            const adminLocation = req.user.adminLocation;
-            
-            // Admin must have location assigned
-            if (!adminLocation || !adminLocation.village) {
-              errors.push({
-                line: lineNumber,
-                error: "Admin location not configured on server",
-                data: data,
-              });
-              return;
-            }
-
-            // Extract location from CSV row (can be in 'location' column or use lat/lng)
-            const rowLocation = data.location ? data.location.trim() : null;
-            
-            if (!rowLocation) {
-              errors.push({
-                line: lineNumber,
-                error: "Location field required for admin uploads",
-                data: data,
-              });
-              return;
-            }
-
-            // Normalize for comparison (lowercase and trim whitespace)
-            const adminVillage = adminLocation.village.toLowerCase().trim();
-            const submittedLocation = rowLocation.toLowerCase().trim();
-
-            // CRITICAL: If ADMIN location mismatch, record error and abort all processing
-            if (adminVillage !== submittedLocation) {
-              // Set adminLocationError to prevent ANY database insertion
-              if (!adminLocationError) {
-                adminLocationError = {
-                  line: lineNumber,
-                  expectedVillage: adminLocation.village,
-                  receivedVillage: rowLocation
-                };
-              }
-              errors.push({
-                line: lineNumber,
-                error: `Location mismatch: submitted '${rowLocation}' but admin is assigned to '${adminLocation.village}'`,
-                data: data,
-                submittedLocation: rowLocation,
-                allowedLocation: adminLocation.village
-              });
-              return;
-            }
-
-            // Location validation passed for ADMIN
-          }
-
           results.push(caseReport);
         } catch (error) {
           errors.push({
@@ -481,22 +426,6 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
       })
       .on("end", async () => {
         try {
-          // 🔐 CRITICAL: If ADMIN user had location validation error, REJECT immediately without inserting
-          if (adminLocationError) {
-            // Clean up file before returning error
-            if (fs.existsSync(filePath)) {
-              fs.unlinkSync(filePath);
-            }
-            return res.status(403).json({
-              error: "Unauthorized location in CSV",
-              detail: `Row ${adminLocationError.line} location mismatch`,
-              rowNumber: adminLocationError.line,
-              expectedVillage: adminLocationError.expectedVillage,
-              receivedVillage: adminLocationError.receivedVillage,
-              message: `Admin assigned to '${adminLocationError.expectedVillage}' but row ${adminLocationError.line} submitted '${adminLocationError.receivedVillage}'. No data inserted.`
-            });
-          }
-
           // Insert all valid records into database
           let inserted = 0;
           let insertedRecords = [];

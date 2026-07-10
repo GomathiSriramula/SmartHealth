@@ -7,6 +7,7 @@ import { CSVUpload } from "./CSVUpload";
 import { PredictionsDashboard } from "./PredictionsDashboard";
 import Analytics from "./Analytics";
 import OutbreakDashboard from "./OutbreakDashboard";
+import AdminOperators from "./AdminOperators";
 
 interface Report {
   _id?: string;
@@ -49,8 +50,10 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  // Set default tab based on role - USER starts with alerts, ADMIN/OPERATOR with overview
-  const [activeTab, setActiveTab] = useState(userRole === 'USER' ? 'alerts' : 'overview');
+  // Set default tab based on role - USER starts with alerts, ADMIN starts with operators
+  const [activeTab, setActiveTab] = useState(
+    userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'alerts' : 'overview'
+  );
   const [formData, setFormData] = useState({
     reporter_type: "",
     patient_age: "",
@@ -62,7 +65,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   });
 
   useEffect(() => {
-    setActiveTab(userRole === 'USER' ? 'alerts' : 'overview');
+    setActiveTab(userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'alerts' : 'overview');
   }, [userRole]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -484,6 +487,27 @@ const Dashboard: React.FC<DashboardProps> = ({
                       strokeLinejoin="round"
                       strokeWidth="2"
                       d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
+            {userRole === 'ADMIN' && (
+              <TabButton
+                id="operators"
+                label="District Operators"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M17 20h5v-2a4 4 0 00-5-3.874M9 20H4v-2a4 4 0 015-3.874m8-5.126a4 4 0 10-8 0 4 4 0 008 0zM20 8a2 2 0 11-4 0 2 2 0 014 0zM8 8a2 2 0 11-4 0 2 2 0 014 0z"
                     ></path>
                   </svg>
                 }
@@ -1232,6 +1256,11 @@ const Dashboard: React.FC<DashboardProps> = ({
               onUploadSuccess={() => fetchReports(false)}
               onSensorUploadSuccess={() => fetchAlerts()}
             />
+          )}
+
+          {/* District Operators Tab - Only ADMIN */}
+          {activeTab === "operators" && userRole === 'ADMIN' && (
+            <AdminOperators token={token} />
           )}
 
           {/* Analytics Tab */}

@@ -74,31 +74,13 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ['ADMIN', 'OPERATOR', 'USER'], default: 'USER' },
   locations: [{ type: String }], // Optional: locations user is assigned to (e.g., ["Plant A", "Plant B"])
   adminLocation: {
-    // Optional: used only when role === "ADMIN"
+    // Optional metadata for ADMIN accounts
     state: String,
     district: String,
     village: String
   },
   created_at: { type: Date, default: Date.now },
 });
-
-// Compound unique index: Ensure only ONE admin per village
-// Uses partial filter to only apply to ADMIN users
-UserSchema.index(
-  { 
-    'adminLocation.state': 1, 
-    'adminLocation.district': 1, 
-    'adminLocation.village': 1 
-  },
-  { 
-    unique: true,
-    partialFilterExpression: { 
-      role: 'ADMIN',
-      'adminLocation.village': { $exists: true, $ne: null }
-    },
-    name: 'unique_admin_per_village'
-  }
-);
 
 const User = mongoose.model("User", UserSchema, "users");
 

@@ -17,6 +17,7 @@ const alertsApiRouter = require("./routes/alertsApi");
 
 // Initialize alert manager after mlPredictions router is loaded (which defines MLAlert model)
 const { initializeAlertModel } = require("./utils/alertManager");
+const { ensureDefaultAdmin } = require("./utils/auth");
 initializeAlertModel();
 
 const app = express();
@@ -95,6 +96,13 @@ async function start() {
   } catch (e) {
     console.error("Failed to connect to MongoDB:", e.message);
     // still start; endpoints will error until DB is available
+  }
+
+  try {
+    const defaultAdmin = await ensureDefaultAdmin();
+    console.log(`Default admin ready: ${defaultAdmin.email}`);
+  } catch (e) {
+    console.error("Failed to ensure default admin:", e.message);
   }
 
   app.listen(PORT, () => {
