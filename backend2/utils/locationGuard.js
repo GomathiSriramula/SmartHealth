@@ -19,6 +19,8 @@
  * // Inside handler: req.locationGuardContext = { requestedLocation: ... }
  */
 
+const { operatorMatchesDistrict } = require("./auth");
+
 const locationGuard = (options = {}) => {
   return (req, res, next) => {
     // Skip if no user (shouldn't happen after authMiddleware, but be safe)
@@ -26,7 +28,25 @@ const locationGuard = (options = {}) => {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    // All authenticated roles are allowed through.
+    if (req.user.role !== "OPERATOR") {
+      return next();
+    }
+
+    const requestedLocation = typeof options.getLocationFromData === "function"
+      ? options.getLocationFromData(req)
+      : req.body?.location || req.body?.district || req.body?.village || req.query?.location || req.params?.location || "";
+
+    if (!requestedLocation) {
+      return next();
+    }
+
+    if (!operatorMatchesDistrict(req.user, requestedLocation)) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Operators can only access records for their assigned district",
+      });
+    }
+
     next();
   };
 };

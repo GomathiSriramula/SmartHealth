@@ -13,7 +13,7 @@ const Prediction = require('../models/Prediction');
 const mlClient = require('../services/mlClient');
 const { checkForAlerts } = require('../services/alertChecker');
 const { sendAlertNotification } = require('../services/alertNotifier');
-const { authMiddleware } = require('../utils/auth');
+const { authMiddleware, buildDistrictFilter, getUserDistrict } = require('../utils/auth');
 const locationGuard = require('../utils/locationGuard');
 
 /**
@@ -35,6 +35,7 @@ function applyLocationFilter(userRole, adminLocation) {
 router.post('/predictions', authMiddleware, locationGuard(), async (req, res) => {
   try {
     const { pH, Turbidity, Dissolved_Oxygen, location, source } = req.body;
+    const operatorDistrict = getUserDistrict(req.user);
 
     // Validate required fields
     if (pH === undefined || Turbidity === undefined || Dissolved_Oxygen === undefined) {
@@ -61,7 +62,7 @@ router.post('/predictions', authMiddleware, locationGuard(), async (req, res) =>
       risk: mlResult.risk,
       confidence: mlResult.confidence,
       probabilities: mlResult.probabilities,
-      location: location || 'unknown',
+      location: location || operatorDistrict || 'unknown',
       source: source || 'manual'
     });
 
@@ -125,7 +126,7 @@ router.get('/predictions', authMiddleware, async (req, res) => {
   try {
     const { risk, limit = 50, skip = 0 } = req.query;
 
-    const query = {};
+    const query = buildDistrictFilter(req.user);
     
     if (risk) {
       query.risk = risk.toUpperCase();
@@ -164,7 +165,7 @@ router.get('/predictions', authMiddleware, async (req, res) => {
  */
 router.get('/predictions/:id', authMiddleware, async (req, res) => {
   try {
-    const prediction = await Prediction.findById(req.params.id).lean();
+    const prediction = await Prediction.findOne({ _id: req.params.id, ...buildDistrictFilter(req.user) }).lean();
 
     if (!prediction) {
       return res.status(404).json({ error: 'Prediction not found' });
@@ -193,7 +194,7 @@ router.get('/predictions/:id', authMiddleware, async (req, res) => {
  */
 router.get('/predictions/stats/summary', authMiddleware, async (req, res) => {
   try {
-    let query = {};
+    let query = buildDistrictFilter(req.user);
     
     const total = await Prediction.countDocuments(query);
     

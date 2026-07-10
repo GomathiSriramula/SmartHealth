@@ -11,7 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { authMiddleware } = require('../utils/auth');
+const { authMiddleware, buildDistrictFilter, getUserDistrict } = require('../utils/auth');
 const locationGuard = require('../utils/locationGuard');
 const {
   predictWaterQuality,
@@ -144,9 +144,10 @@ router.post('/predict', authMiddleware, locationGuard(), async (req, res) => {
     });
 
     // Create prediction document
+    const operatorDistrict = getUserDistrict(req.user);
     const prediction = new Prediction({
       ...predictionData,
-      location,
+      location: location || operatorDistrict || 'Unknown',
       lat,
       lng,
       waterQualityInput: {
@@ -214,9 +215,11 @@ router.post('/predict', authMiddleware, locationGuard(), async (req, res) => {
  *   "location": "Regional Monitoring"
  * }
  */
-router.post('/batch', async (req, res) => {
+router.post('/batch', authMiddleware, locationGuard(), async (req, res) => {
   try {
     const { predictions: waterSamples, location = 'Batch Import' } = req.body;
+    const operatorDistrict = getUserDistrict(req.user);
+    const batchLocation = location || operatorDistrict || 'Batch Import';
 
     if (!Array.isArray(waterSamples) || waterSamples.length === 0) {
       return res.status(400).json({
@@ -247,7 +250,7 @@ router.post('/batch', async (req, res) => {
 
       const prediction = new Prediction({
         ...predictionData,
-        location: `${location} [${i + 1}/${waterSamples.length}]`,
+        location: `${batchLocation} [${i + 1}/${waterSamples.length}]`,
         waterQualityInput: waterSample,
       });
 
@@ -296,7 +299,7 @@ router.post('/batch', async (req, res) => {
  * - limit: max results (default: 50)
  * - skip: pagination offset (default: 0)
  */
-router.get('/', async (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   try {
     const {
       riskLevel,
@@ -306,7 +309,7 @@ router.get('/', async (req, res) => {
       skip = 0,
     } = req.query;
 
-    const query = {};
+    const query = buildDistrictFilter(req.user);
 
     if (riskLevel) {
       query.riskLevel = normalizeRiskLevel(riskLevel);
@@ -352,9 +355,9 @@ router.get('/', async (req, res) => {
  * GET /ml-predictions/:id
  * Get detailed prediction information
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', authMiddleware, async (req, res) => {
   try {
-    const prediction = await Prediction.findById(req.params.id).lean();
+    const prediction = await Prediction.findOne({ _id: req.params.id, ...buildDistrictFilter(req.user) }).lean();
 
     if (!prediction) {
       return res.status(404).json({
@@ -379,15 +382,18 @@ router.get('/:id', async (req, res) => {
  * GET /ml-predictions/stats/summary
  * Get summary statistics of all predictions
  */
-router.get('/stats/summary', async (req, res) => {
+router.get('/stats/summary', authMiddleware, async (req, res) => {
   try {
     const { hours = 24 } = req.query;
 
     const fromDate = new Date(Date.now() - hours * 60 * 60 * 1000);
 
+    const districtFilter = buildDistrictFilter(req.user);
+
     const stats = await Prediction.aggregate([
       {
         $match: {
+          ...districtFilter,
           predictedDate: { $gte: fromDate },
         },
       },
@@ -401,6 +407,7 @@ router.get('/stats/summary', async (req, res) => {
     ]);
 
     const total = await Prediction.countDocuments({
+      ...districtFilter,
       predictedDate: { $gte: fromDate },
     });
 

@@ -5,7 +5,7 @@ const publish = require("../utils/publisher");
 const { triggerPrediction } = require("../services/predictionTrigger");
 const { checkForAlerts } = require("../services/alertChecker");
 
-const { authMiddleware } = require("../utils/auth");
+const { authMiddleware, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 
 /**
@@ -54,6 +54,9 @@ async function asyncTriggerPrediction(sensorData) {
 router.post("/sensor", authMiddleware, locationGuard(), async (req, res) => {
   try {
     const body = Object.assign({}, req.body);
+    if (!body.location && req.user?.role === "OPERATOR") {
+      body.location = getUserDistrict(req.user);
+    }
     if (typeof body.reading_at === "string") {
       const d = new Date(body.reading_at);
       if (!isNaN(d)) body.reading_at = d;
@@ -76,6 +79,9 @@ router.post("/sensor", authMiddleware, locationGuard(), async (req, res) => {
 router.post("/sensors", authMiddleware, locationGuard(), async (req, res) => {
   try {
     const body = Object.assign({}, req.body);
+    if (!body.location && req.user?.role === "OPERATOR") {
+      body.location = getUserDistrict(req.user);
+    }
     if (typeof body.reading_at === "string") {
       const d = new Date(body.reading_at);
       if (!isNaN(d)) body.reading_at = d;
@@ -95,11 +101,11 @@ router.post("/sensors", authMiddleware, locationGuard(), async (req, res) => {
   }
 });
 
-router.get("/sensors", async (req, res) => {
+router.get("/sensors", authMiddleware, async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 1000);
-    const docs = await SensorReading.find().skip(skip).limit(limit).lean();
+    const docs = await SensorReading.find(buildDistrictFilter(req.user)).skip(skip).limit(limit).lean();
     return res.json(docs);
   } catch (e) {
     console.error(e);

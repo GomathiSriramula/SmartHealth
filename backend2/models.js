@@ -22,6 +22,7 @@ const SensorReadingSchema = new mongoose.Schema(
     reading_at: { type: Date, required: true },
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
+    location: { type: String, required: false },
     turbidity: { type: Number, default: null },
     pH: { type: Number, default: null },
     conductivity: { type: Number, default: null },

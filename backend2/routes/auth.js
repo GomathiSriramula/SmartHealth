@@ -17,9 +17,13 @@ function formatOperator(user) {
 // Register
 router.post("/auth/register", async (req, res) => {
   try {
-    const { username, password, email } = req.body;
+    const { username, password, email, role } = req.body;
     if (!username || !password || !email)
       return res.status(400).json({ error: "username, password, and email are required" });
+
+    if (role && role !== 'USER') {
+      return res.status(403).json({ error: "Public registration is restricted to USER accounts only" });
+    }
     
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

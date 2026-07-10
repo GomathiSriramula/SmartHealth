@@ -8,6 +8,50 @@ const DEFAULT_ADMIN_EMAIL = "admin@health.in";
 const DEFAULT_ADMIN_PASSWORD = "Admin@123";
 const DEFAULT_ADMIN_USERNAME = "telangana-admin";
 
+function normalizeLocation(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function getUserDistrict(user) {
+  if (!user || user.role !== "OPERATOR") {
+    return "";
+  }
+
+  const district = user.locations?.[0];
+  return typeof district === "string" ? district.trim() : "";
+}
+
+function buildDistrictFilter(user, fieldName = "location") {
+  const district = getUserDistrict(user);
+  if (!district) {
+    return {};
+  }
+
+  return {
+    [fieldName]: new RegExp(`^${district.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
+  };
+}
+
+function getRequestLocation(req, options = {}) {
+  if (typeof options.getLocation === "function") {
+    return options.getLocation(req);
+  }
+
+  return (
+    req.body?.location ||
+    req.body?.district ||
+    req.body?.village ||
+    req.query?.location ||
+    req.params?.location ||
+    ""
+  );
+}
+
+function operatorMatchesDistrict(user, location) {
+  const district = getUserDistrict(user);
+  return Boolean(district) && normalizeLocation(district) === normalizeLocation(location);
+}
+
 async function createUser(username, password, email, options = {}) {
   const salt = await bcrypt.genSalt(10);
   const hash = await bcrypt.hash(password, salt);
@@ -118,12 +162,15 @@ async function authMiddleware(req, res, next) {
 module.exports = {
   createUser,
   ensureDefaultAdmin,
+  buildDistrictFilter,
   hashPassword,
+  getUserDistrict,
   verifyPassword,
   signToken,
   verifyToken,
   authMiddleware,
   requireRole,
+  operatorMatchesDistrict,
 };
 
 function requireRole(...allowedRoles) {

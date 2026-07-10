@@ -50,7 +50,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  // Set default tab based on role - USER starts with alerts, ADMIN starts with operators
+  // Set default tab based on role - public users start with alerts, the management view starts on the admin workspace
   const [activeTab, setActiveTab] = useState(
     userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'alerts' : 'overview'
   );
@@ -366,7 +366,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         {/* Sidebar */}
         <aside className="w-64 bg-white h-screen shadow-sm">
           <div className="p-6 space-y-2">
-            {/* Overview - Only ADMIN and OPERATOR */}
+            {/* Overview - Management users only */}
             {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
               <TabButton
                 id="overview"
@@ -388,7 +388,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 }
               />
             )}
-            {/* Reports - Only ADMIN and OPERATOR */}
+            {/* Reports - Management users only */}
             {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
               <TabButton
                 id="reports"
@@ -410,7 +410,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               }
               />
             )}
-            {/* Submit Report - Only ADMIN and OPERATOR */}
+            {/* Submit Report - Management users only */}
             {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
               <TabButton
                 id="submit"
@@ -470,7 +470,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </svg>
               }
             />
-            {/* CSV Upload - Only ADMIN and OPERATOR */}
+            {/* CSV Upload - Management users only */}
             {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
               <TabButton
                 id="csv-upload"
@@ -903,7 +903,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
 
-          {/* Submit Report Tab - Only ADMIN and OPERATOR */}
+          {/* Submit Report Tab - Management users only */}
           {activeTab === "submit" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
             <div className="space-y-6">
               <div>
@@ -1197,7 +1197,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             {expandedAlerts.has(alert._id) && (
                               <div className="mt-4 pt-4 border-t border-current border-opacity-20">
                                 <p className="text-sm mb-3"><strong>Alert ID:</strong> {alert._id.slice(0, 12)}...</p>
-                                {/* Alert Actions - Only ADMIN and OPERATOR */}
+                                {/* Alert Actions - Management users only */}
                                 {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
                                   <div className="flex gap-2 flex-wrap">
                                     {alert.status === "active" && (
@@ -1249,7 +1249,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
 
-          {/* CSV Upload Tab - Only ADMIN and OPERATOR */}
+          {/* CSV Upload Tab - Management users only */}
           {activeTab === "csv-upload" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
             <CSVUpload 
               token={token} 
@@ -1258,7 +1258,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             />
           )}
 
-          {/* District Operators Tab - Only ADMIN */}
+          {/* Management tab - admin only */}
           {activeTab === "operators" && userRole === 'ADMIN' && (
             <AdminOperators token={token} />
           )}

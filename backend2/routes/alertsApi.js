@@ -1,7 +1,7 @@
 const express = require('express');
 const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
-const { authMiddleware } = require('../utils/auth');
+const { authMiddleware, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
 
 const router = express.Router();
 
@@ -15,11 +15,22 @@ const router = express.Router();
 router.get('/alerts', authMiddleware, async (req, res) => {
   try {
     const { location, status = 'all', limit = 50, skip = 0 } = req.query;
+    const userRole = req.user.role || 'USER';
 
     // Build base filter from query parameters
-    const filter = {};
-    if (location) filter.location = location;
+    const filter = buildDistrictFilter(req.user);
+    if (location) {
+      filter.location = new RegExp(`^${location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    }
     if (status !== 'all') filter.status = status;
+
+    if (req.user.role === 'OPERATOR' && location && !operatorMatchesDistrict(req.user, location)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Operators can only access alerts for their assigned district'
+      });
+    }
 
     // Get total count with applied filters
     const total = await Alert.countDocuments(filter);
@@ -58,7 +69,7 @@ router.get('/alerts', authMiddleware, async (req, res) => {
  */
 router.get('/alerts/:id', authMiddleware, async (req, res) => {
   try {
-    const alert = await Alert.findById(req.params.id);
+    const alert = await Alert.findOne({ _id: req.params.id, ...buildDistrictFilter(req.user) });
 
     if (!alert) {
       return res.status(404).json({
@@ -193,7 +204,7 @@ router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
  */
 router.get('/alerts/stats/summary', authMiddleware, async (req, res) => {
   try {
-    let query = {};
+    let query = buildDistrictFilter(req.user);
     
     // Total alerts
     const totalAlerts = await Alert.countDocuments(query);

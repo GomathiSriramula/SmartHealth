@@ -5,7 +5,7 @@ const publish = require("../utils/publisher");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { checkForAlerts } = require("../services/alertChecker");
 
-const { authMiddleware } = require("../utils/auth");
+const { authMiddleware, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 
 // Debug endpoint
@@ -254,7 +254,12 @@ router.post("/report", authMiddleware, async (req, res) => {
 
 router.post("/reports", authMiddleware, locationGuard(), async (req, res) => {
   try {
-    const obj = await normalizeAndCreateReport(req.body);
+    const reportBody = { ...req.body };
+    if (!reportBody.location) {
+      reportBody.location = getUserDistrict(req.user) || reportBody.location;
+    }
+
+    const obj = await normalizeAndCreateReport(reportBody);
     await publish("case_reports", { id: obj._id });
     
     // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
@@ -290,11 +295,11 @@ router.post("/reports", authMiddleware, locationGuard(), async (req, res) => {
   }
 });
 
-router.get("/reports", async (req, res) => {
+router.get("/reports", authMiddleware, async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 10000); // 🔑 Increased to 10,000
-    const filter = {};
+    const filter = buildDistrictFilter(req.user);
     if (req.query.reporter_id) {
       filter.reporter_id = req.query.reporter_id;
     }

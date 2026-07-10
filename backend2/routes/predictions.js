@@ -5,7 +5,7 @@ const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { Prediction, CaseReport } = require("../models");
 const { checkForAlerts } = require("../services/alertChecker");
 const { notifyAlertCreation } = require("../utils/mailer");
-const { authMiddleware } = require("../utils/auth");
+const { authMiddleware, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
 
@@ -56,9 +56,10 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
     }
 
     // Create prediction document
+    const operatorDistrict = getUserDistrict(req.user);
     const prediction = new Prediction({
       predictionType,
-      location: location || "Unknown",
+      location: location || operatorDistrict || "Unknown",
       riskLevel: riskLevel.toLowerCase(),
       details,
       recommendations: recommendations || [],
@@ -190,11 +191,11 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
  * - skip: number of results to skip (default: 0)
  * - sort: sort order (newest or oldest, default: newest)
  */
-router.get("/predictions", async (req, res) => {
+router.get("/predictions", authMiddleware, async (req, res) => {
   try {
     const { riskLevel, limit = 50, skip = 0, sort = "newest" } = req.query;
 
-    const query = {};
+    const query = buildDistrictFilter(req.user);
     if (riskLevel) {
       query.riskLevel = riskLevel.toLowerCase();
     }
@@ -294,7 +295,7 @@ router.get("/predictions/landing-stats", async (req, res) => {
  * GET /predictions/:id
  * Get a specific prediction by ID
  */
-router.get("/predictions/:id", async (req, res) => {
+router.get("/predictions/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -302,7 +303,7 @@ router.get("/predictions/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid prediction ID" });
     }
 
-    const prediction = await Prediction.findById(id);
+    const prediction = await Prediction.findOne({ _id: id, ...buildDistrictFilter(req.user) });
 
     if (!prediction) {
       return res.status(404).json({ error: "Prediction not found" });
@@ -322,7 +323,7 @@ router.get("/predictions/:id", async (req, res) => {
  * POST /predictions/:id/notify
  * Resend email notification for a specific prediction
  */
-router.post("/predictions/:id/notify", async (req, res) => {
+router.post("/predictions/:id/notify", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -330,7 +331,7 @@ router.post("/predictions/:id/notify", async (req, res) => {
       return res.status(400).json({ error: "Invalid prediction ID" });
     }
 
-    const prediction = await Prediction.findById(id);
+    const prediction = await Prediction.findOne({ _id: id, ...buildDistrictFilter(req.user) });
 
     if (!prediction) {
       return res.status(404).json({ error: "Prediction not found" });
@@ -360,7 +361,7 @@ router.post("/predictions/:id/notify", async (req, res) => {
  * DELETE /predictions/:id
  * Delete a specific prediction
  */
-router.delete("/predictions/:id", async (req, res) => {
+router.delete("/predictions/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -368,7 +369,7 @@ router.delete("/predictions/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid prediction ID" });
     }
 
-    const prediction = await Prediction.findByIdAndDelete(id);
+    const prediction = await Prediction.findOneAndDelete({ _id: id, ...buildDistrictFilter(req.user) });
 
     if (!prediction) {
       return res.status(404).json({ error: "Prediction not found" });
@@ -395,7 +396,7 @@ router.delete("/predictions/:id", async (req, res) => {
  * Get comprehensive analytics data for predictions
  * Includes risk level distribution, trends over time, location hotspots, etc.
  */
-router.get("/analytics", async (req, res) => {
+router.get("/analytics", authMiddleware, async (req, res) => {
   try {
     const { timeRange = "30" } = req.query; // Default to last 30 days
     
@@ -405,18 +406,22 @@ router.get("/analytics", async (req, res) => {
     startDate.setDate(startDate.getDate() - daysAgo);
     
     // Get all predictions within the time range
+    const districtFilter = buildDistrictFilter(req.user);
+
     const predictions = await Prediction.find({
+      ...districtFilter,
       predictedDate: { $gte: startDate }
     }).sort({ predictedDate: -1 });
     
-    const allPredictions = await Prediction.find({});
+    const allPredictions = await Prediction.find(districtFilter);
     
     // Get case reports from admins
     const caseReports = await CaseReport.find({
+      ...districtFilter,
       reported_at: { $gte: startDate }
     }).sort({ reported_at: -1 });
     
-    const allCaseReports = await CaseReport.find({});
+    const allCaseReports = await CaseReport.find(districtFilter);
     
     // Risk Level Distribution
     const riskDistribution = {

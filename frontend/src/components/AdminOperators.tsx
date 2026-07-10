@@ -166,13 +166,13 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <div className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700">
-              Admin dashboard
+              Management dashboard
             </div>
             <h1 className="mt-3 text-3xl font-bold text-gray-900">
               District Operator Management
             </h1>
             <p className="mt-2 max-w-2xl text-gray-600">
-              Create, edit, and remove District Operator accounts for Telangana. State is fixed and only ADMIN can use this page.
+              Create, edit, and remove district accounts for Telangana. State is fixed and this page is restricted to management users.
             </p>
           </div>
           <div className="rounded-xl bg-white/80 px-4 py-3 text-sm text-gray-700 shadow-sm ring-1 ring-blue-100">
