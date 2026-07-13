@@ -40,12 +40,12 @@ function log(msg, color = 'reset') {
 async function register() {
   try {
     log('\n📝 Registering test user...', 'cyan');
-    const res = await axios.post(`${API_BASE}/register`, testUser);
+    const res = await axios.post(`${API_BASE}/auth/register`, testUser);
     log(`✅ Registration successful`, 'green');
     return true;
   } catch (error) {
     // User might already exist
-    if (error.response?.status === 400) {
+    if (error.response?.status === 400 || error.response?.status === 409) {
       log(`ℹ️  User already exists`, 'yellow');
       return true;
     }
@@ -57,8 +57,8 @@ async function register() {
 async function login() {
   try {
     log('\n🔐 Logging in...', 'cyan');
-    const res = await axios.post(`${API_BASE}/login`, {
-      username: testUser.username,
+    const res = await axios.post(`${API_BASE}/auth/login`, {
+      email: testUser.email,
       password: testUser.password
     });
     authToken = res.data.token;
@@ -190,17 +190,7 @@ async function verifyEndpoints() {
   try {
     log('\n🔍 VERIFICATION: Checking key endpoints exist', 'blue');
 
-    // Check sensor endpoint
-    log(`\n  Testing: POST /sensor`, 'cyan');
-    try {
-      const res = await axios.post(`${API_BASE}/sensor`, {}, {
-        headers: { Authorization: `Bearer ${authToken}` },
-        validateStatus: () => true
-      });
-      log(`  ✅ Endpoint accessible`, 'green');
-    } catch (e) {
-      log(`  ⚠️  Endpoint check inconclusive`, 'yellow');
-    }
+
 
     // Check report endpoint
     log(`\n  Testing: POST /report`, 'cyan');
@@ -233,7 +223,6 @@ async function runTests() {
   // Run tests
   const results = [];
   results.push(await verifyEndpoints());
-  results.push(await testWaterQualityPrediction());
   results.push(await testDiseaseCasePrediction());
   results.push(await testLowRiskCase());
 
@@ -248,16 +237,14 @@ async function runTests() {
   log(`\n${passed}/${total} tests passed`, passed === total ? 'green' : 'yellow');
 
   log('\n📋 IMPLEMENTATION CHECKLIST:', 'cyan');
-  log('✅ Water quality sensor prediction: Added trigger in routes/sensors.js', 'green');
   log('✅ Disease case prediction: Verified working in routes/reports.js', 'green');
   log('✅ CSV bulk upload prediction: Verified working in routes/uploads.js', 'green');
-  log('✅ Logging: Enhanced with [Water Quality], [Case Report], [CSV Bulk Upload] prefixes', 'green');
+  log('✅ Logging: Enhanced with [Case Report], [CSV Bulk Upload] prefixes', 'green');
 
   log('\n📊 WHAT TO CHECK IN BACKEND LOGS:', 'cyan');
-  log('1. Water quality data: Look for "[Sensor Prediction] NEW: ML prediction triggered"', 'cyan');
-  log('2. Disease cases: Look for "[Case Report Prediction] HIGH RISK CASE DETECTED"', 'cyan');
-  log('3. CSV upload: Look for "[CSV Bulk Upload]" with high-risk count', 'cyan');
-  log('4. Low-risk cases: Should show "no prediction triggered"', 'cyan');
+  log('1. Disease cases: Look for "[Case Report Prediction] HIGH RISK CASE DETECTED"', 'cyan');
+  log('2. CSV upload: Look for "[CSV Bulk Upload]" with high-risk count', 'cyan');
+  log('3. Low-risk cases: Should show "no prediction triggered"', 'cyan');
 
   log('\n' + '='.repeat(70) + '\n', 'cyan');
 }

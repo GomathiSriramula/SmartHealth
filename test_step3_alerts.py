@@ -290,7 +290,6 @@ def run_all_tests():
     results.append(test_second_high_creates_alert(token))
     results.append(test_low_risk_resolves_alert(token))
     results.append(test_different_location_independent(token))
-    results.append(test_water_quality_high_risk(token))
     
     # Summary
     log("\n" + "=" * 70, "cyan")
@@ -313,7 +312,6 @@ def run_all_tests():
     log("\n✅ STEP 3 IMPLEMENTATION DETAILS:", "cyan")
     log("✅ Fixed consecutive HIGH requirement: Now needs exactly 2 HIGHs (not 1)", "green")
     log("✅ Added alert triggering to disease case reports (HIGH RISK)", "green")
-    log("✅ Added alert triggering to sensor water quality (HIGH RISK)", "green")
     log("✅ Made time window configurable (default 48 hours)", "green")
     log("✅ Clear logging: [Alert Checker], [Alert Creator], [Alert Resolver]", "green")
     

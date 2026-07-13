@@ -4,8 +4,8 @@
  * This route handles outbreak risk predictions using the Python ML module.
  * 
  * Endpoints:
- * - POST /api/ml/predict - Single sensor prediction
- * - POST /api/ml/batch - Batch predictions for multiple sensors
+ * - POST /api/ml/predict - Single water quality prediction
+ * - POST /api/ml/batch - Batch predictions for multiple samples
  * - GET /api/ml/info - Get model information
  * - POST /api/ml/validate - Validate input without prediction
  */
@@ -77,8 +77,7 @@ function callMLModule(command, input) {
  * {
  *   "pH": 7.0,
  *   "turbidity": 5.0,
- *   "dissolved_oxygen": 6.0,
- *   "sensorId": "sensor-123" (optional)
+ *   "dissolved_oxygen": 6.0
  * }
  * 
  * Response on success:
@@ -90,8 +89,7 @@ function callMLModule(command, input) {
  *     "Low": 0.92,
  *     "Medium": 0.06,
  *     "High": 0.02
- *   },
- *   "sensorId": "sensor-123"
+ *   }
  * }
  * 
  * Response on error:
@@ -104,7 +102,7 @@ function callMLModule(command, input) {
  */
 router.post('/api/ml/predict', (req, res) => {
     try {
-        const { pH, turbidity, dissolved_oxygen, sensorId } = req.body;
+        const { pH, turbidity, dissolved_oxygen } = req.body;
 
         // Validate required fields
         const requiredFields = { pH, turbidity, dissolved_oxygen };
@@ -135,10 +133,6 @@ router.post('/api/ml/predict', (req, res) => {
             dissolved_oxygen
         });
 
-        if (prediction.success && sensorId) {
-            prediction.sensorId = sensorId;
-        }
-
         const statusCode = prediction.success ? 200 : 400;
         res.status(statusCode).json(prediction);
     } catch (error) {
@@ -154,15 +148,14 @@ router.post('/api/ml/predict', (req, res) => {
 /**
  * POST /api/ml/batch
  * 
- * Make batch predictions for multiple sensors
+ * Make batch predictions for multiple samples
  * 
- * Request body: Array of sensor readings
+ * Request body: Array of water quality readings
  * [
  *   {
  *     "pH": 7.0,
  *     "turbidity": 5.0,
- *     "dissolved_oxygen": 6.0,
- *     "sensorId": "sensor-1" (optional)
+ *     "dissolved_oxygen": 6.0
  *   },
  *   ...
  * ]
@@ -175,7 +168,6 @@ router.post('/api/ml/predict', (req, res) => {
  *   "failed": 0,
  *   "predictions": [
  *     {
- *       "sensorId": "sensor-1",
  *       "risk_label": "Low",
  *       "confidence": 95,
  *       "probabilities": {...},

@@ -23,16 +23,13 @@ API compatibility
 - POST /reports/debug — debug payload (returns data types)
 - GET /reports — list reports (query params: skip, limit)
 
-- POST /sensor and POST /sensors — create sensor reading
-- GET /sensors — list sensor readings (query params: skip, limit)
-
 Authentication
 
 - Send header `x-api-key` with the value in `API_KEY` env variable (default: `secret-key`).
 
 Publisher
 
-- If `RABBITMQ_URL` is set the server will publish events to the queue named `case_reports` or `sensor_readings`.
+- If `RABBITMQ_URL` is set the server will publish events to the queue named `case_reports`.
 - If not set, the publish function logs the payload (fallback for local dev).
 
 Notes

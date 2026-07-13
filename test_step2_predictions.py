@@ -216,7 +216,6 @@ def run_all_tests():
     
     # Run tests
     results = []
-    results.append(test_water_quality_sensor(token))
     results.append(test_disease_case_high_risk(token))
     results.append(test_disease_case_low_risk(token))
     
@@ -230,16 +229,11 @@ def run_all_tests():
     log(f"\n{passed}/{total} tests passed", "green" if passed == total else "yellow")
     
     log("\n✅ IMPLEMENTATION COMPLETE:", "green")
-    log("✅ Water quality sensor prediction: Added trigger in routes/sensors.js", "green")
     log("✅ Disease case prediction: Enhanced logging in routes/reports.js", "green")
     log("✅ CSV bulk upload prediction: Enhanced logging in routes/uploads.js", "green")
-    log("✅ Logging: Clear [Sensor Prediction], [Case Report Prediction], [CSV Bulk Upload] prefixes", "green")
+    log("✅ Logging: Clear [Case Report Prediction], [CSV Bulk Upload] prefixes", "green")
     
     log("\n📋 WHAT WAS IMPLEMENTED:", "cyan")
-    log("1. Water Quality: When sensor data is added via POST /sensor or /sensors", "cyan")
-    log("   - Automatically calls triggerPrediction() asynchronously", "cyan")
-    log("   - Maps water quality fields to ML model (pH, Turbidity, Dissolved_Oxygen)", "cyan")
-    log("   - Logs: '[Sensor Prediction] NEW: ML prediction triggered'", "cyan")
     
     log("\n2. Disease Cases: When case reports are added via POST /report or /reports", "cyan")
     log("   - Analyzes symptoms against predefined risk categories", "cyan")

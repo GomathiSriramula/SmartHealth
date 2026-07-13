@@ -148,7 +148,7 @@ export const PredictionsDashboard: React.FC<PredictionsDashboardProps> = ({ toke
       <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg shadow-lg p-6 text-white">
         <h2 className="text-3xl font-bold mb-2">🔮 ML Predictions Dashboard</h2>
         <p className="text-purple-100">
-          Real-time disease outbreak risk predictions from sensor data analysis
+          Real-time disease outbreak risk predictions from water quality data analysis
         </p>
         {lastUpdated && (
           <p className="text-sm text-purple-200 mt-3">
@@ -181,7 +181,7 @@ export const PredictionsDashboard: React.FC<PredictionsDashboardProps> = ({ toke
         <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
           <p className="text-blue-700 font-semibold">ℹ️ No predictions yet</p>
           <p className="text-blue-600 text-sm mt-1">
-            Predictions will appear here once the ML model processes sensor data.
+            Predictions will appear here once the ML model processes water quality data.
           </p>
         </div>
       )}

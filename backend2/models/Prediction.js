@@ -34,7 +34,7 @@ const PredictionSchema = new mongoose.Schema({
   
   // Metadata
   location: { type: String },
-  source: { type: String }, // 'sensor', 'manual', 'batch'
+  source: { type: String }, // 'manual', 'batch'
   
   // Timestamps
   predictedAt: { type: Date, default: Date.now },
