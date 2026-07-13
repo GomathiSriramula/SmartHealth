@@ -5,7 +5,7 @@ const morgan = require("morgan");
 const mongoose = require("mongoose");
 
 const reportsRouter = require("./routes/reports");
-const sensorsRouter = require("./routes/sensors");
+
 const authRouter = require("./routes/auth");
 const predictionsRouter = require("./routes/predictions");
 const uploadsRouter = require("./routes/uploads");
@@ -71,7 +71,7 @@ app.get('/health', async (req, res) => {
 });
 
 app.use("/", reportsRouter);
-app.use("/", sensorsRouter);
+
 app.use("/", authRouter);
 app.use("/", predictionsRouter);
 app.use("/", uploadsRouter);

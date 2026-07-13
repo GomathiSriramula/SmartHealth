@@ -15,7 +15,7 @@ const CaseReportSchema = new mongoose.Schema(
   },
   { timestamps: { createdAt: "created_at" } }
 );
-
+/*
 const SensorReadingSchema = new mongoose.Schema(
   {
     sensor_id: { type: String, required: true },
@@ -28,7 +28,7 @@ const SensorReadingSchema = new mongoose.Schema(
     conductivity: { type: Number, default: null },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
-);
+);*/
 
 const PredictionSchema = new mongoose.Schema(
   {
@@ -55,11 +55,6 @@ const CaseReport = mongoose.model(
   CaseReportSchema,
   "case_reports"
 );
-const SensorReading = mongoose.model(
-  "SensorReading",
-  SensorReadingSchema,
-  "sensor_readings"
-);
 
 let Prediction;
 try {
@@ -85,4 +80,4 @@ const UserSchema = new mongoose.Schema({
 
 const User = mongoose.model("User", UserSchema, "users");
 
-module.exports = { CaseReport, SensorReading, Prediction, User, AuditLog };
+module.exports = { CaseReport, Prediction, User, AuditLog };

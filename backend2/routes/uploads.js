@@ -4,14 +4,13 @@ const multer = require("multer");
 const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
-const { CaseReport, SensorReading, Prediction } = require("../models");
+const { CaseReport, Prediction } = require("../models");
 const { authMiddleware } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { notifyAlertCreation } = require("../utils/mailer");
 const { logAudit } = require("../utils/auditLogger");
 const { checkForAlerts } = require("../services/alertChecker");
-const { triggerPrediction } = require("../services/predictionTrigger");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -49,31 +48,31 @@ const upload = multer({
  */
 function analyzeReportRisk(report) {
   const symptoms = Array.isArray(report.symptoms) ? report.symptoms : [];
-  
+
   const highRiskSymptoms = [
     'severe diarrhea', 'diarrhea', 'bloody stool', 'bloody diarrhea',
     'dehydration', 'severe dehydration', 'cholera', 'typhoid',
     'dysentery', 'hepatitis', 'severe vomiting', 'high fever with diarrhea'
   ];
-  
+
   const mediumRiskSymptoms = [
     'nausea', 'vomiting', 'stomach cramps', 'abdominal pain',
     'mild fever', 'fatigue', 'weakness', 'headache', 'loss of appetite'
   ];
-  
+
   const normalizedSymptoms = symptoms.map(s => s.toLowerCase().trim());
-  
-  const highRiskMatches = normalizedSymptoms.filter(s => 
+
+  const highRiskMatches = normalizedSymptoms.filter(s =>
     highRiskSymptoms.some(hrs => s.includes(hrs) || hrs.includes(s))
   ).length;
-  
-  const mediumRiskMatches = normalizedSymptoms.filter(s => 
+
+  const mediumRiskMatches = normalizedSymptoms.filter(s =>
     mediumRiskSymptoms.some(mrs => s.includes(mrs) || mrs.includes(s))
   ).length;
-  
+
   let riskLevel = 'low';
   let confidence = 50;
-  
+
   if (highRiskMatches >= 2) {
     riskLevel = 'high';
     confidence = Math.min(85 + (highRiskMatches * 5), 98);
@@ -87,7 +86,7 @@ function analyzeReportRisk(report) {
     riskLevel = 'low';
     confidence = 50 + (mediumRiskMatches * 5);
   }
-  
+
   return { riskLevel, confidence, highRiskMatches, mediumRiskMatches };
 }
 
@@ -97,28 +96,28 @@ function analyzeReportRisk(report) {
 async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
   try {
     if (!reports || reports.length === 0) return null;
-    
+
     // Analyze all reports
     const analyses = reports.map(report => ({
       report,
       analysis: analyzeReportRisk(report)
     }));
-    
+
     // Count high-risk cases
     const highRiskCases = analyses.filter(a => a.analysis.riskLevel === 'high');
-    
+
     if (highRiskCases.length === 0) {
       console.log(`📊 [CSV Bulk Upload] No HIGH RISK cases found in ${reports.length} reports - no prediction triggered`);
       return null;
     }
-    
+
     console.log(`🚨 [CSV Bulk Upload] ${highRiskCases.length} HIGH RISK cases detected out of ${reports.length} total! - Triggering prediction...`);
-    
+
     // Get location info from high-risk cases
     // Prioritize location field (village name) over coordinates for proper alert matching
     const locationField = highRiskCases.find(c => c.report.location)?.report.location;
     let locationStr;
-    
+
     if (locationField) {
       // Use village/location name if available (critical for alert matching)
       locationStr = locationField;
@@ -129,19 +128,19 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
         .map(c => c.report.lat && c.report.lng ? `(${c.report.lat.toFixed(4)}, ${c.report.lng.toFixed(4)})` : null)
         .filter(Boolean);
       const uniqueLocations = [...new Set(locations)];
-      locationStr = uniqueLocations.slice(0, 3).join(', ') + 
+      locationStr = uniqueLocations.slice(0, 3).join(', ') +
                    (uniqueLocations.length > 3 ? ` and ${uniqueLocations.length - 3} more` : 'Multiple locations');
       console.log(`📍 [CSV Bulk Upload] Using coordinates: ${locationStr}`);
     }
-    
+
     // Calculate average confidence
     const avgConfidence = highRiskCases.reduce((sum, c) => sum + c.analysis.confidence, 0) / highRiskCases.length;
-    
+
     // Collect all symptoms from high-risk cases
     const allSymptoms = highRiskCases
       .flatMap(c => c.report.symptoms)
       .filter((v, i, a) => a.indexOf(v) === i); // unique
-    
+
     // Create prediction
     const predictionData = {
       predictionType: "Multiple Water-Borne Disease Cases Detected",
@@ -171,7 +170,7 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
         uploadTimestamp: new Date()
       }
     };
-    
+
     // Save prediction
     const prediction = await Prediction.create(predictionData);
     console.log(`✅ [CSV Bulk Upload] Prediction created: ${prediction._id}`);
@@ -209,22 +208,22 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
       console.error(`⚠️  [CSV Alert] Check failed (non-blocking): ${alertError.message}`);
       console.error(alertError);
     }
-    
+
     // Send email notification
     console.log(`📧 [CSV Bulk Upload] Sending email alerts to users...`);
     const notificationResult = await notifyUsersOfPrediction(prediction);
-    
+
     if (notificationResult.success && notificationResult.count > 0) {
       console.log(`✅ [CSV Bulk Upload] Email alerts sent to ${notificationResult.count} users`);
     }
-    
+
     return {
       prediction,
       notification: notificationResult,
       highRiskCount: highRiskCases.length,
       alert: alertResult
     };
-    
+
   } catch (error) {
     console.error(`❌ Error analyzing CSV reports:`, error);
     return null;
@@ -232,95 +231,13 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
 }
 
 /**
- * Analyze sensor readings and trigger ML predictions for water quality
- */
-async function analyzeSensorReadingsAndPredict(sensorReadings) {
-  try {
-    if (!sensorReadings || sensorReadings.length === 0) return null;
-    
-    console.log(`🌊 [CSV Sensor Upload] Processing ${sensorReadings.length} sensor readings for ML predictions...`);
-    
-    let predictionsCreated = 0;
-    let alertsCreated = 0;
-    const predictions = [];
-    
-    // Process each sensor reading that has water quality data
-    for (const reading of sensorReadings) {
-      if (reading.pH !== null && reading.pH !== undefined && 
-          reading.turbidity !== null && reading.turbidity !== undefined) {
-        
-        try {
-          const waterQualityData = {
-            pH: reading.pH,
-            Turbidity: reading.turbidity,
-            Dissolved_Oxygen: reading.conductivity || 8.0 // Use conductivity as proxy or default
-          };
-          
-          const location = reading.location || `Sensor ${reading.sensor_id}`;
-          const prediction = await triggerPrediction(waterQualityData, { 
-            location, 
-            source: 'csv_sensor_upload',
-            sensorId: reading.sensor_id
-          });
-          
-          if (prediction) {
-            predictionsCreated++;
-            predictions.push(prediction);
-            console.log(`✅ [CSV Sensor] Prediction for ${reading.sensor_id}: ${prediction.risk} risk`);
-            
-            // Check for alerts if HIGH risk
-            if (prediction.risk === 'high' || prediction.riskLevel === 'HIGH') {
-              try {
-                const alertResult = await checkForAlerts(prediction);
-                
-                if (alertResult.action === 'created') {
-                  alertsCreated++;
-                  console.log(`🚨 [CSV Sensor Alert] CREATED: ${alertResult.message}`);
-                  
-                  // Send alert notification
-                  try {
-                    await notifyAlertCreation(alertResult.alert);
-                  } catch (notifyError) {
-                    console.error(`⚠️  [CSV Sensor Alert] Notification failed: ${notifyError.message}`);
-                  }
-                } else if (alertResult.action === 'resolved') {
-                  console.log(`✅ [CSV Sensor Alert] RESOLVED: ${alertResult.message}`);
-                } else {
-                  console.log(`ℹ️  [CSV Sensor Alert] ${alertResult.message}`);
-                }
-              } catch (alertError) {
-                console.error(`⚠️  [CSV Sensor Alert] Check failed: ${alertError.message}`);
-              }
-            }
-          }
-        } catch (predError) {
-          console.error(`❌ [CSV Sensor] Prediction failed for ${reading.sensor_id}:`, predError.message);
-        }
-      }
-    }
-    
-    console.log(`✅ [CSV Sensor Upload] Complete: ${predictionsCreated} predictions, ${alertsCreated} alerts`);
-    
-    return {
-      predictionsCount: predictionsCreated,
-      alertsCount: alertsCreated,
-      predictions: predictions
-    };
-    
-  } catch (error) {
-    console.error(`❌ Error analyzing sensor readings:`, error);
-    return null;
-  }
-}
-
-/**
  * POST /upload/case-reports
  * Upload CSV file containing case reports
- * 
+ *
  * Expected CSV columns:
  * reporter_type, reporter_id, patient_age, sex, lat, lng, symptoms, reported_at
  * Optional: location (required for ADMIN users - must match their assigned village)
- * 
+ *
  * Notes:
  * - reporter_id will be overridden with the authenticated user's username
  * - For ADMIN users: Every row's location must match the admin's assigned village
@@ -348,7 +265,7 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
         lineNumber++;
         try {
           // Validate required fields (reporter_id is optional as we override it)
-          if (!data.reporter_type || !data.patient_age || 
+          if (!data.reporter_type || !data.patient_age ||
               !data.sex || !data.lat || !data.lng || !data.symptoms || !data.reported_at) {
             errors.push({
               line: lineNumber,
@@ -516,174 +433,16 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
 });
 
 /**
- * POST /upload/sensor-readings
- * Upload CSV file containing sensor readings
- * 
- * Expected CSV columns:
- * sensor_id, reading_at, lat, lng, turbidity, pH, conductivity
- */
-router.post("/upload/sensor-readings", upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: "No file uploaded" });
-    }
-
-    const filePath = req.file.path;
-    const results = [];
-    const errors = [];
-    let lineNumber = 1;
-
-    fs.createReadStream(filePath)
-      .pipe(csv())
-      .on("data", (data) => {
-        lineNumber++;
-        try {
-          // Validate required fields
-          if (!data.sensor_id || !data.reading_at || !data.lat || !data.lng) {
-            errors.push({
-              line: lineNumber,
-              error: "Missing required fields (sensor_id, reading_at, lat, lng)",
-              data: data,
-            });
-            return;
-          }
-
-          const sensorReading = {
-            sensor_id: data.sensor_id.trim(),
-            reading_at: new Date(data.reading_at),
-            lat: parseFloat(data.lat),
-            lng: parseFloat(data.lng),
-            turbidity: data.turbidity ? parseFloat(data.turbidity) : null,
-            pH: data.pH ? parseFloat(data.pH) : null,
-            conductivity: data.conductivity ? parseFloat(data.conductivity) : null,
-          };
-
-          // Add location field if present in CSV (important for alert matching)
-          if (data.location && data.location.trim()) {
-            sensorReading.location = data.location.trim();
-          }
-
-          // Validate data
-          if (isNaN(sensorReading.lat) || isNaN(sensorReading.lng)) {
-            errors.push({
-              line: lineNumber,
-              error: "Invalid lat/lng coordinates",
-              data: data,
-            });
-            return;
-          }
-
-          if (isNaN(sensorReading.reading_at.getTime())) {
-            errors.push({
-              line: lineNumber,
-              error: "Invalid reading_at date",
-              data: data,
-            });
-            return;
-          }
-
-          results.push(sensorReading);
-        } catch (error) {
-          errors.push({
-            line: lineNumber,
-            error: error.message,
-            data: data,
-          });
-        }
-      })
-      .on("end", async () => {
-        try {
-          let inserted = 0;
-          let insertedRecords = [];
-          if (results.length > 0) {
-            insertedRecords = await SensorReading.insertMany(results, { ordered: false });
-            inserted = insertedRecords.length;
-          }
-
-          // 🌊 NEW: Trigger ML predictions for sensor readings with water quality data
-          let mlAnalysis = null;
-          if (insertedRecords.length > 0) {
-            // Convert MongoDB documents to plain objects for processing
-            const recordsToAnalyze = insertedRecords.map(record => ({
-              sensor_id: record.sensor_id,
-              pH: record.pH,
-              turbidity: record.turbidity,
-              conductivity: record.conductivity,
-              location: record.location,
-              lat: record.lat,
-              lng: record.lng
-            }));
-            mlAnalysis = await analyzeSensorReadingsAndPredict(recordsToAnalyze);
-          }
-
-          fs.unlinkSync(filePath);
-
-          const response = {
-            message: "CSV file processed successfully",
-            summary: {
-              totalRows: lineNumber - 1,
-              successful: inserted,
-              failed: errors.length,
-            },
-            errors: errors.length > 0 ? errors.slice(0, 10) : [],
-          };
-
-          // Include ML prediction info if predictions were made
-          if (mlAnalysis && mlAnalysis.predictionsCount > 0) {
-            response.mlAnalysis = {
-              predictionsCreated: mlAnalysis.predictionsCount,
-              alertsCreated: mlAnalysis.alertsCount,
-              message: `🎯 ${mlAnalysis.predictionsCount} ML predictions created, ${mlAnalysis.alertsCount} alerts triggered`
-            };
-          }
-
-          res.json(response);
-        } catch (dbError) {
-          console.error("Database error:", dbError);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-          }
-          res.status(500).json({
-            error: "Database insertion failed",
-            detail: dbError.message,
-          });
-        }
-      })
-      .on("error", (error) => {
-        console.error("CSV parsing error:", error);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
-        res.status(500).json({
-          error: "CSV parsing failed",
-          detail: error.message,
-        });
-      });
-  } catch (error) {
-    console.error("Upload error:", error);
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    res.status(500).json({
-      error: "File upload failed",
-      detail: error.message,
-    });
-  }
-});
-
-/**
  * GET /upload/stats
  * Get upload statistics and database counts
  */
 router.get("/upload/stats", async (req, res) => {
   try {
     const caseReportCount = await CaseReport.countDocuments();
-    const sensorReadingCount = await SensorReading.countDocuments();
 
     res.json({
       database: {
         caseReports: caseReportCount,
-        sensorReadings: sensorReadingCount,
       },
     });
   } catch (error) {

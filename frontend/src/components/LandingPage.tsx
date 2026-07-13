@@ -78,8 +78,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 <span className="text-blue-600"> Health Monitoring</span>
               </h1>
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                Advanced early warning system for water-borne diseases. Monitor, detect, and prevent outbreaks 
-                in vulnerable communities with AI-powered surveillance and real-time alerts.
+                AI-powered community health surveillance for early detection of water-borne disease outbreaks. Collect case reports, analyze disease trends, and generate timely alerts to support public health response.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
@@ -151,7 +150,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-4">Water Quality Monitoring</h3>
-              <p className="text-gray-600">IoT sensors track water contamination levels including turbidity, pH, and bacterial presence in real-time.</p>
+             <p className="text-gray-600">Health workers, clinics, and community volunteers can quickly report suspected disease cases from their local areas. These reports help the system identify possible outbreaks early and support timely public health response.</p> 
             </div>
 
             <div className="bg-white rounded-xl p-8 shadow-lg hover:shadow-xl transition-shadow">

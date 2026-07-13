@@ -6,7 +6,7 @@ import Navigation from "./Navigation";
 import { CSVUpload } from "./CSVUpload";
 import { PredictionsDashboard } from "./PredictionsDashboard";
 import Analytics from "./Analytics";
-import OutbreakDashboard from "./OutbreakDashboard";
+
 import AdminOperators from "./AdminOperators";
 
 interface Report {
@@ -532,25 +532,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </svg>
               }
             />
-            <TabButton
-              id="outbreak"
-              label="Outbreak Risk"
-              icon={
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  ></path>
-                </svg>
-              }
-            />
+            
           </div>
         </aside>
 
@@ -1250,11 +1232,11 @@ const Dashboard: React.FC<DashboardProps> = ({
           )}
 
           {/* CSV Upload Tab - Management users only */}
+          {/* CSV Upload Tab - Management users only */}
           {activeTab === "csv-upload" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
             <CSVUpload 
               token={token} 
               onUploadSuccess={() => fetchReports(false)}
-              onSensorUploadSuccess={() => fetchAlerts()}
             />
           )}
 
@@ -1273,10 +1255,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <PredictionsDashboard token={token} />
           )}
 
-          {/* Outbreak Risk Tab */}
-          {activeTab === "outbreak" && (
-            <OutbreakDashboard token={token} username={username} />
-          )}
+          
         </main>
       </div>
     </div>

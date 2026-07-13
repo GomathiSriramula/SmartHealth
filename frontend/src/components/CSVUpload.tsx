@@ -12,23 +12,32 @@ interface UploadResult {
   errors: Array<{
     line: number;
     error: string;
-    data: any;
+    data: Record<string, unknown>;
   }>;
+  riskAlert?: {
+    highRiskCases: number;
+    emailsSent: number;
+    predictionId?: string;
+    message: string;
+    alert?: {
+      action: string;
+      message: string;
+      alertId: string | null;
+    } | null;
+  };
 }
 
 interface CSVUploadProps {
   token: string;
   onUploadSuccess?: () => void;
-  onSensorUploadSuccess?: () => void;
 }
 
-export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess, onSensorUploadSuccess }) => {
+export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadType, setUploadType] = useState<'case-reports' | 'sensor-readings'>('case-reports');
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [error, setError] = useState<string>('');
-  const [stats, setStats] = useState<{ caseReports: number; sensorReadings: number } | null>(null);
+  const [stats, setStats] = useState<{ caseReports: number } | null>(null);
 
   const API_URL = 'http://127.0.0.1:5000';
 
@@ -87,19 +96,15 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess, on
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      const endpoint = uploadType === 'case-reports' 
-        ? '/upload/case-reports' 
-        : '/upload/sensor-readings';
-
       const headers: HeadersInit = {};
       // Add authorization header if token exists
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
 
-      console.log('📤 Uploading CSV file:', selectedFile.name, 'Type:', uploadType);
+      console.log('📤 Uploading CSV file:', selectedFile.name);
 
-      const response = await fetch(`${API_URL}${endpoint}`, {
+      const response = await fetch(`${API_URL}/upload/case-reports`, {
         method: 'POST',
         headers,
         body: formData,
@@ -126,7 +131,7 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess, on
       fetchStats();
 
       // 🔑 Trigger dashboard refresh to update report counts
-      if (uploadType === 'case-reports' && onUploadSuccess) {
+      if (onUploadSuccess) {
         console.log('🔄 Triggering dashboard refresh after case reports CSV upload');
         // Wait for backend to finish processing and saving records
         setTimeout(async () => {
@@ -134,16 +139,6 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess, on
           await onUploadSuccess();
           console.log('✅ Dashboard refresh complete');
         }, 1000);
-      }
-
-      // 🌊 Trigger alerts refresh after sensor readings upload
-      if (uploadType === 'sensor-readings' && onSensorUploadSuccess) {
-        console.log('🌊 Triggering alerts refresh after sensor readings CSV upload');
-        setTimeout(async () => {
-          console.log('🎯 Refreshing ML predictions and alerts...');
-          await onSensorUploadSuccess();
-          console.log('✅ Alerts refresh complete');
-        }, 1500); // Extra time for ML predictions to complete
       }
     } catch (err) {
       console.error('Upload error:', err);
@@ -153,25 +148,13 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess, on
     }
   };
 
-  const handleDownloadSample = (type: 'case-reports' | 'sensor-readings') => {
-    let csvContent = '';
-    let filename = '';
-
-    if (type === 'case-reports') {
-      csvContent = `reporter_type,reporter_id,patient_age,sex,lat,lng,symptoms,reported_at
+  const handleDownloadSample = () => {
+    const csvContent = `reporter_type,reporter_id,patient_age,sex,lat,lng,symptoms,reported_at
 Clinic,c-2001,45,M,17.4530,78.3950,Fever|Headache,2025-11-01T10:30Z
 ASHA,r-2002,32,F,17.4520,78.3960,Diarrhea,2025-11-02T14:15Z
 Volunteer,v-2003,28,M,17.4510,78.3940,Vomiting|Nausea,2025-11-03T08:45Z
 Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
-      filename = 'sample_case_reports.csv';
-    } else {
-      csvContent = `sensor_id,reading_at,lat,lng,turbidity,pH,conductivity
-S-001,2025-11-01T10:00Z,17.4530,78.3950,5.2,7.1,450
-S-002,2025-11-01T10:15Z,17.4520,78.3960,8.5,6.8,520
-S-003,2025-11-01T10:30Z,17.4510,78.3940,3.1,7.4,380
-S-004,2025-11-01T11:15Z,17.4540,78.3970,12.3,6.5,680`;
-      filename = 'sample_sensor_readings.csv';
-    }
+    const filename = 'sample_case_reports.csv';
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -191,47 +174,12 @@ S-004,2025-11-01T11:15Z,17.4540,78.3970,12.3,6.5,680`;
         {stats && (
           <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <h3 className="font-semibold text-blue-900 mb-2">📊 Database Statistics</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-blue-700">Case Reports:</p>
-                <p className="text-2xl font-bold text-blue-900">{stats.caseReports}</p>
-              </div>
-              <div>
-                <p className="text-sm text-blue-700">Sensor Readings:</p>
-                <p className="text-2xl font-bold text-blue-900">{stats.sensorReadings}</p>
-              </div>
+            <div>
+              <p className="text-sm text-blue-700">Case Reports:</p>
+              <p className="text-2xl font-bold text-blue-900">{stats.caseReports}</p>
             </div>
           </div>
         )}
-
-        {/* Upload Type Selection */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Upload Type
-          </label>
-          <div className="flex gap-4">
-            <label className="flex items-center">
-              <input
-                type="radio"
-                value="case-reports"
-                checked={uploadType === 'case-reports'}
-                onChange={(e) => setUploadType(e.target.value as any)}
-                className="mr-2"
-              />
-              <span className="text-gray-700">Case Reports</span>
-            </label>
-            <label className="flex items-center">
-              <input
-                type="radio"
-                value="sensor-readings"
-                checked={uploadType === 'sensor-readings'}
-                onChange={(e) => setUploadType(e.target.value as any)}
-                className="mr-2"
-              />
-              <span className="text-gray-700">Sensor Readings</span>
-            </label>
-          </div>
-        </div>
 
         {/* File Input */}
         <div className="mb-6">
@@ -253,7 +201,7 @@ S-004,2025-11-01T11:15Z,17.4540,78.3970,12.3,6.5,680`;
             />
             <button
               type="button"
-              onClick={() => handleDownloadSample(uploadType)}
+              onClick={handleDownloadSample}
               className="px-4 py-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50"
             >
               📥 Download Sample
@@ -349,51 +297,10 @@ S-004,2025-11-01T11:15Z,17.4540,78.3970,12.3,6.5,680`;
                 </div>
               )}
 
-              {uploadType === 'case-reports' && result.summary.successful > 0 && (
+              {result.summary.successful > 0 && (
                 <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <p className="text-sm text-blue-800">
                     ℹ️ <strong>Next Steps:</strong> Check your <strong>Overview</strong> and <strong>Reports</strong> tabs to see the uploaded data reflected in your dashboard statistics and report list.
-                  </p>
-                </div>
-              )}
-
-              {uploadType === 'sensor-readings' && (result as any).mlAnalysis && (
-                <div className="mt-4 p-4 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-2 border-green-300">
-                  <h4 className="font-bold text-green-900 mb-3 text-lg">🎯 ML Predictions & Alerts Generated</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center space-x-2 text-green-800">
-                      <span className="text-2xl">✅</span>
-                      <p><strong className="text-xl">{(result as any).mlAnalysis.predictionsCreated}</strong> ML predictions created from water quality data</p>
-                    </div>
-                    {(result as any).mlAnalysis.alertsCreated > 0 ? (
-                      <div className="flex items-center space-x-2 p-3 bg-red-100 rounded-lg border-2 border-red-400">
-                        <span className="text-3xl animate-pulse">🚨</span>
-                        <p className="font-bold text-red-900 text-lg">
-                          {(result as any).mlAnalysis.alertsCreated} HIGH RISK ALERT{(result as any).mlAnalysis.alertsCreated > 1 ? 'S' : ''} TRIGGERED!
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-2 text-blue-700">
-                        <span className="text-xl">ℹ️</span>
-                        <p>No alerts triggered yet. Upload more HIGH risk sensor data to trigger outbreak alerts.</p>
-                      </div>
-                    )}
-                    <div className="mt-3 p-3 bg-white rounded border border-green-300">
-                      <p className="font-semibold text-green-900 mb-2">📋 Next Steps:</p>
-                      <ol className="list-decimal list-inside space-y-1 text-green-800">
-                        <li>Go to <strong className="text-blue-600">ML Predictions</strong> tab to see water quality risk analysis</li>
-                        <li>Go to <strong className="text-red-600">Alerts</strong> tab to view any outbreak warnings</li>
-                        <li>Check <strong>Outbreak Risk</strong> tab for location-based risk maps</li>
-                      </ol>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {uploadType === 'sensor-readings' && result.summary.successful > 0 && !(result as any).mlAnalysis && (
-                <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-300">
-                  <p className="text-sm text-yellow-800">
-                    ⚠️ <strong>Note:</strong> ML predictions require pH, turbidity, and conductivity values in your sensor data. Check <strong>ML Predictions</strong> tab after backend processing completes.
                   </p>
                 </div>
               )}
@@ -414,124 +321,76 @@ S-004,2025-11-01T11:15Z,17.4540,78.3970,12.3,6.5,680`;
           </ul>
         </div>
 
-        {/* Format Examples */}
+        {/* Format Example */}
         <div className="mt-6">
-          {uploadType === 'case-reports' ? (
-            <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
-              <h4 className="font-bold text-blue-900 mb-4 text-lg">📋 Case Reports CSV Format</h4>
-              
-              {/* Required Fields */}
-              <div className="mb-4">
-                <h5 className="font-semibold text-blue-800 mb-2">Required Fields:</h5>
-                <div className="bg-white p-3 rounded border border-blue-200 space-y-2 text-sm">
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">reporter_type</span>
-                    <span className="col-span-2 text-gray-700">Clinic, ASHA, Volunteer, HealthOfficial</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">patient_age</span>
-                    <span className="col-span-2 text-gray-700">Age in years (e.g., 45, 8, 67)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">sex</span>
-                    <span className="col-span-2 text-gray-700">M, F, or O</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">lat, lng</span>
-                    <span className="col-span-2 text-gray-700">Coordinates (e.g., 17.4530, 78.3950)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">symptoms</span>
-                    <span className="col-span-2 text-gray-700">Pipe-separated (Fever|Headache|Diarrhea)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">reported_at</span>
-                    <span className="col-span-2 text-gray-700">ISO 8601 format (2026-02-10T10:30Z)</span>
-                  </div>
+          <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
+            <h4 className="font-bold text-blue-900 mb-4 text-lg">📋 Case Reports CSV Format</h4>
+            
+            {/* Required Fields */}
+            <div className="mb-4">
+              <h5 className="font-semibold text-blue-800 mb-2">Required Fields:</h5>
+              <div className="bg-white p-3 rounded border border-blue-200 space-y-2 text-sm">
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">reporter_type</span>
+                  <span className="col-span-2 text-gray-700">Clinic, ASHA, Volunteer, HealthOfficial</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">patient_age</span>
+                  <span className="col-span-2 text-gray-700">Age in years (e.g., 45, 8, 67)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">sex</span>
+                  <span className="col-span-2 text-gray-700">M, F, or O</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">lat, lng</span>
+                  <span className="col-span-2 text-gray-700">Coordinates (e.g., 17.4530, 78.3950)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">symptoms</span>
+                  <span className="col-span-2 text-gray-700">Pipe-separated (Fever|Headache|Diarrhea)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">reported_at</span>
+                  <span className="col-span-2 text-gray-700">ISO 8601 format (2026-02-10T10:30Z)</span>
                 </div>
               </div>
+            </div>
 
-              {/* Optional Fields */}
-              <div className="mb-4">
-                <h5 className="font-semibold text-blue-800 mb-2">Optional Fields:</h5>
-                <div className="bg-white p-3 rounded border border-blue-200 space-y-2 text-sm">
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">location</span>
-                    <span className="col-span-2 text-gray-700">Village/area name (e.g., ramapur) - Enables alert matching</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-blue-700">reporter_id</span>
-                    <span className="col-span-2 text-gray-700">Ignored - automatically set to your username</span>
-                  </div>
+            {/* Optional Fields */}
+            <div className="mb-4">
+              <h5 className="font-semibold text-blue-800 mb-2">Optional Fields:</h5>
+              <div className="bg-white p-3 rounded border border-blue-200 space-y-2 text-sm">
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">location</span>
+                  <span className="col-span-2 text-gray-700">Village/area name (e.g., ramapur) - Enables alert matching</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">reporter_id</span>
+                  <span className="col-span-2 text-gray-700">Ignored - automatically set to your username</span>
                 </div>
               </div>
+            </div>
 
-              {/* Example */}
-              <div>
-                <h5 className="font-semibold text-blue-800 mb-2">Example CSV:</h5>
-                <pre className="text-xs bg-white p-3 rounded border border-blue-200 overflow-x-auto text-gray-800 font-mono">
+            {/* Example */}
+            <div>
+              <h5 className="font-semibold text-blue-800 mb-2">Example CSV:</h5>
+              <pre className="text-xs bg-white p-3 rounded border border-blue-200 overflow-x-auto text-gray-800 font-mono">
 reporter_type,patient_age,sex,lat,lng,symptoms,reported_at,location
 Clinic,45,M,17.4530,78.3950,Fever|Headache|Diarrhea,2026-02-10T10:30Z,ramapur
 ASHA,32,F,17.4520,78.3960,Diarrhea|Vomiting|Dehydration,2026-02-10T14:15Z,ramapur
 Volunteer,28,M,17.4510,78.3940,Nausea|Abdominal Pain,2026-02-10T08:45Z,ramapur
-                </pre>
-              </div>
-
-              {/* Common Symptoms */}
-              <div className="mt-4 p-3 bg-blue-100 rounded border border-blue-300">
-                <h5 className="font-semibold text-blue-900 mb-1">💡 Common Symptoms:</h5>
-                <p className="text-xs text-blue-800">
-                  Fever, Headache, Diarrhea, Vomiting, Nausea, Abdominal Pain, Stomach Pain, Dehydration, Blood in Stool, Fatigue, Body Ache, Cough
-                </p>
-              </div>
+              </pre>
             </div>
-          ) : (
-            <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-2 border-green-200">
-              <h4 className="font-bold text-green-900 mb-4 text-lg">🌊 Sensor Readings CSV Format</h4>
-              
-              {/* Required Fields */}
-              <div className="mb-4">
-                <h5 className="font-semibold text-green-800 mb-2">Required Fields:</h5>
-                <div className="bg-white p-3 rounded border border-green-200 space-y-2 text-sm">
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-green-700">sensor_id</span>
-                    <span className="col-span-2 text-gray-700">Sensor identifier (e.g., S-001)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-green-700">reading_at</span>
-                    <span className="col-span-2 text-gray-700">ISO 8601 format (2026-02-10T10:00Z)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-green-700">lat, lng</span>
-                    <span className="col-span-2 text-gray-700">Coordinates (e.g., 17.4530, 78.3950)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-green-700">turbidity</span>
-                    <span className="col-span-2 text-gray-700">Water turbidity value (e.g., 5.2)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-green-700">pH</span>
-                    <span className="col-span-2 text-gray-700">pH level (e.g., 7.1)</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <span className="font-mono text-green-700">conductivity</span>
-                    <span className="col-span-2 text-gray-700">Electrical conductivity (e.g., 450)</span>
-                  </div>
-                </div>
-              </div>
 
-              {/* Example */}
-              <div>
-                <h5 className="font-semibold text-green-800 mb-2">Example CSV:</h5>
-                <pre className="text-xs bg-white p-3 rounded border border-green-200 overflow-x-auto text-gray-800 font-mono">
-sensor_id,reading_at,lat,lng,turbidity,pH,conductivity
-S-001,2026-02-10T10:00Z,17.4530,78.3950,5.2,7.1,450
-S-002,2026-02-10T11:00Z,17.4520,78.3960,6.8,6.9,480
-S-003,2026-02-10T12:00Z,17.4510,78.3940,4.5,7.3,420
-                </pre>
-              </div>
+            {/* Common Symptoms */}
+            <div className="mt-4 p-3 bg-blue-100 rounded border border-blue-300">
+              <h5 className="font-semibold text-blue-900 mb-1">💡 Common Symptoms:</h5>
+              <p className="text-xs text-blue-800">
+                Fever, Headache, Diarrhea, Vomiting, Nausea, Abdominal Pain, Stomach Pain, Dehydration, Blood in Stool, Fatigue, Body Ache, Cough
+              </p>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

@@ -286,8 +286,7 @@ Main components:
    - Shows predictions globally
    - Not user-specific
 
-4. **OutbreakDashboard** (outbreak analytics)
-   - Aggregated view of alerts by location
+
 
 ### Data Fetching Pattern
 
@@ -616,7 +615,7 @@ frontend/src/
 │   ├── Register.tsx                  # Registration form
 │   ├── AlertsPanel.tsx               # Alert display & management
 │   ├── PredictionsDashboard.tsx     # Predictions display
-│   ├── OutbreakDashboard.tsx        # Outbreak analytics
+│  
 │   └── ...other components
 └── vite.config.ts                    # Build configuration
 ```

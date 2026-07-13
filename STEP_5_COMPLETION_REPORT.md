@@ -55,8 +55,8 @@ STEP 5 focused on frontend verification, error handling improvements, and UI pol
 |-----------|----------|---|
 | PredictionsDashboard | 30 seconds | `setInterval(fetchPredictions, 30000)` |
 | AlertsPanel | 30 seconds | Custom refresh interval prop |
-| RiskStatus | 30 seconds | Via OutbreakDashboard props |
-| OutbreakDashboard | 30 seconds | Passes to all child components |
+| RiskStatus | 30 seconds |
+| 30 seconds | Passes to all child components |
 
 ### 5. Current UI Issues Found (Pre-STEP 5)
 
@@ -346,7 +346,7 @@ interface AlertsPanelProps {
   refreshInterval?: number; // Refresh interval in ms (default: 30000)
 }
 
-// Same for RiskStatus and OutbreakDashboard
+// Same for RiskStatus
 ```
 
 ---
