@@ -55,18 +55,18 @@ function operatorMatchesDistrict(user, location) {
 async function createUser(username, password, email, options = {}) {
   const salt = await bcrypt.genSalt(10);
   const hash = await bcrypt.hash(password, salt);
-  
+
   const userObj = {
     username,
     email,
     passwordHash: hash
   };
-  
+
   // Add role if provided (otherwise schema default applies)
   if (options.role) {
     userObj.role = options.role;
   }
-  
+
   if (Array.isArray(options.locations) && options.locations.length > 0) {
     userObj.locations = options.locations;
   }
@@ -75,7 +75,7 @@ async function createUser(username, password, email, options = {}) {
   if (options.role === 'ADMIN' && options.adminLocation) {
     userObj.adminLocation = options.adminLocation;
   }
-  
+
   const user = await User.create(userObj);
   return user;
 }
@@ -115,17 +115,21 @@ function verifyToken(token) {
   }
 }
 
-// Express middleware: accepts x-api-key header OR Bearer token
+// Express middleware: accepts Bearer token (preferred) OR x-api-key header (fallback only)
 // Extracts user info (id, username, role) from token and attaches any stored adminLocation metadata
 async function authMiddleware(req, res, next) {
   const apiKey = process.env.API_KEY || "secret-key";
   const headerKey = req.header("x-api-key");
-  if (headerKey && headerKey === apiKey) {
+  const auth = req.header("authorization");
+
+  // Only use the API key path when there's no Bearer token present.
+  // This prevents a client that sends BOTH headers (token + api key) from
+  // silently losing the real authenticated user context.
+  if (!auth && headerKey && headerKey === apiKey) {
     req.user = { type: "api_key" };
     return next();
   }
 
-  const auth = req.header("authorization");
   if (!auth) return res.status(401).json({ error: "Missing auth" });
   const parts = auth.split(" ");
   if (parts.length !== 2 || parts[0] !== "Bearer")
@@ -133,12 +137,12 @@ async function authMiddleware(req, res, next) {
   const token = parts[1];
   const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ error: "Invalid token" });
-  
+
   try {
     // Fetch user from database to get complete profile including adminLocation
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: "User not found" });
-    
+
     // Attach core user info to req.user (always present)
     req.user = {
       id: user._id.toString(),
@@ -146,32 +150,18 @@ async function authMiddleware(req, res, next) {
       role: user.role || 'USER',
       locations: user.locations || []
     };
-    
+
     // If user is ADMIN role, attach any stored adminLocation metadata
     if (req.user.role === 'ADMIN') {
       req.user.adminLocation = user.adminLocation || null;
     }
-    
+
     next();
   } catch (error) {
     console.error('Auth middleware error:', error.message);
     return res.status(500).json({ error: "Authentication failed", detail: error.message });
   }
 }
-
-module.exports = {
-  createUser,
-  ensureDefaultAdmin,
-  buildDistrictFilter,
-  hashPassword,
-  getUserDistrict,
-  verifyPassword,
-  signToken,
-  verifyToken,
-  authMiddleware,
-  requireRole,
-  operatorMatchesDistrict,
-};
 
 function requireRole(...allowedRoles) {
   return (req, res, next) => {
@@ -187,3 +177,17 @@ function requireRole(...allowedRoles) {
     next();
   };
 }
+
+module.exports = {
+  createUser,
+  ensureDefaultAdmin,
+  buildDistrictFilter,
+  hashPassword,
+  getUserDistrict,
+  verifyPassword,
+  signToken,
+  verifyToken,
+  authMiddleware,
+  requireRole,
+  operatorMatchesDistrict,
+};

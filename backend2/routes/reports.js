@@ -43,37 +43,37 @@ router.post("/reports/debug", express.json(), (req, res) => {
  */
 function analyzeReportRisk(report) {
   const symptoms = Array.isArray(report.symptoms) ? report.symptoms : [];
-  
+
   // High-risk symptoms indicating potential water-borne diseases
   const highRiskSymptoms = [
     'severe diarrhea', 'diarrhea', 'bloody stool', 'bloody diarrhea',
     'dehydration', 'severe dehydration', 'cholera', 'typhoid',
     'dysentery', 'hepatitis', 'severe vomiting', 'high fever with diarrhea'
   ];
-  
+
   // Medium-risk symptoms
   const mediumRiskSymptoms = [
     'nausea', 'vomiting', 'stomach cramps', 'abdominal pain',
     'mild fever', 'fatigue', 'weakness', 'headache', 'loss of appetite'
   ];
-  
+
   // Normalize symptoms for comparison
   const normalizedSymptoms = symptoms.map(s => s.toLowerCase().trim());
-  
+
   // Count matching symptoms
-  const highRiskMatches = normalizedSymptoms.filter(s => 
+  const highRiskMatches = normalizedSymptoms.filter(s =>
     highRiskSymptoms.some(hrs => s.includes(hrs) || hrs.includes(s))
   ).length;
-  
-  const mediumRiskMatches = normalizedSymptoms.filter(s => 
+
+  const mediumRiskMatches = normalizedSymptoms.filter(s =>
     mediumRiskSymptoms.some(mrs => s.includes(mrs) || mrs.includes(s))
   ).length;
-  
+
   // Determine risk level
   let riskLevel = 'low';
   let confidence = 50;
   let reasoning = '';
-  
+
   if (highRiskMatches >= 2) {
     riskLevel = 'high';
     confidence = Math.min(85 + (highRiskMatches * 5), 98);
@@ -95,7 +95,7 @@ function analyzeReportRisk(report) {
     confidence = 40;
     reasoning = `No specific water-borne disease symptoms identified.`;
   }
-  
+
   return {
     riskLevel,
     confidence,
@@ -117,9 +117,9 @@ async function createPredictionAndNotify(report, analysis) {
       console.log(`📊 [Case Report Prediction] Report ${report._id}: Risk level is ${analysis.riskLevel} - no prediction triggered`);
       return null;
     }
-    
+
     console.log(`🚨 [Case Report Prediction] HIGH RISK CASE DETECTED: ${report._id} - Triggering prediction...`);
-    
+
     // Create prediction record
     const predictionData = {
       predictionType: "Water-Borne Disease Case",
@@ -127,8 +127,8 @@ async function createPredictionAndNotify(report, analysis) {
       riskLevel: analysis.riskLevel,
       predictedDate: report.reported_at || new Date(),
       details: `URGENT: High-risk case reported with ${analysis.highRiskSymptoms} critical symptoms. ` +
-               `${analysis.reasoning} Patient age: ${report.patient_age || 'Unknown'}, ` +
-               `Sex: ${report.sex || 'Unknown'}. Symptoms: ${Array.isArray(report.symptoms) ? report.symptoms.join(', ') : report.symptoms}.`,
+        `${analysis.reasoning} Patient age: ${report.patient_age || 'Unknown'}, ` +
+        `Sex: ${report.sex || 'Unknown'}. Symptoms: ${Array.isArray(report.symptoms) ? report.symptoms.join(', ') : report.symptoms}.`,
       recommendations: [
         "Immediate medical attention required for patient",
         "Test water source in affected area immediately",
@@ -144,16 +144,16 @@ async function createPredictionAndNotify(report, analysis) {
       lng: report.lng,
       relatedReportId: report._id
     };
-    
+
     // Save prediction to database
     const prediction = await Prediction.create(predictionData);
     console.log(`✅ [Case Report Prediction] Prediction created: ${prediction._id}`);
-    
+
     // 🚨 NEW: Check for alerts (consecutive HIGH risks at same location)
     let alertResult = null;
     try {
       alertResult = await checkForAlerts(prediction);
-      
+
       if (alertResult.action === 'created') {
         console.log(`🚨 [Case Report Alert] Alert CREATED from disease case: ${alertResult.message}`);
       } else if (alertResult.action === 'resolved') {
@@ -164,23 +164,23 @@ async function createPredictionAndNotify(report, analysis) {
     } catch (alertError) {
       console.error(`⚠️  [Case Report Alert] Alert check failed (non-blocking):`, alertError.message);
     }
-    
+
     // Send email notification to all users
     console.log(`📧 [Case Report Prediction] Sending email alerts for HIGH RISK case...`);
     const notificationResult = await notifyUsersOfPrediction(prediction);
-    
+
     if (notificationResult.success && notificationResult.count > 0) {
       console.log(`✅ [Case Report Prediction] Email alerts sent to ${notificationResult.count} users`);
     } else {
       console.log(`⚠️  [Case Report Prediction] Email notification result: ${notificationResult.message}`);
     }
-    
+
     return {
       prediction,
       notification: notificationResult,
       alert: alertResult
     };
-    
+
   } catch (error) {
     console.error(`❌ [Case Report Prediction] Error creating prediction/notification:`, error);
     // Don't fail the report submission if prediction fails
@@ -218,16 +218,16 @@ router.post("/report", authMiddleware, async (req, res) => {
   try {
     const obj = await normalizeAndCreateReport(req.body);
     await publish("case_reports", { id: obj._id });
-    
+
     // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
     const analysis = analyzeReportRisk(obj);
     console.log(`📊 [Case Report] Report ${obj._id} created - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
-    
+
     const predictionResult = await createPredictionAndNotify(obj, analysis);
-    
+
     // Include analysis in response
-    const response = { 
-      status: "accepted", 
+    const response = {
+      status: "accepted",
       id: obj._id,
       riskAnalysis: {
         riskLevel: analysis.riskLevel,
@@ -235,14 +235,14 @@ router.post("/report", authMiddleware, async (req, res) => {
         emailSent: predictionResult ? (predictionResult.notification?.count > 0) : false
       }
     };
-    
+
     if (predictionResult && predictionResult.notification?.count > 0) {
       response.notification = {
         message: `🚨 HIGH RISK: Email alert sent to ${predictionResult.notification.count} users`,
         predictionId: predictionResult.prediction._id
       };
     }
-    
+
     return res.json(response);
   } catch (e) {
     console.error(e);
@@ -259,18 +259,19 @@ router.post("/reports", authMiddleware, locationGuard(), async (req, res) => {
       reportBody.location = getUserDistrict(req.user) || reportBody.location;
     }
 
+
     const obj = await normalizeAndCreateReport(reportBody);
     await publish("case_reports", { id: obj._id });
-    
+
     // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
     const analysis = analyzeReportRisk(obj);
     console.log(`📊 [Case Report] Report ${obj._id} created - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
-    
+
     const predictionResult = await createPredictionAndNotify(obj, analysis);
-    
+
     // Include analysis in response
-    const response = { 
-      status: "accepted", 
+    const response = {
+      status: "accepted",
       id: obj._id,
       riskAnalysis: {
         riskLevel: analysis.riskLevel,
@@ -278,14 +279,14 @@ router.post("/reports", authMiddleware, locationGuard(), async (req, res) => {
         emailSent: predictionResult ? (predictionResult.notification?.count > 0) : false
       }
     };
-    
+
     if (predictionResult && predictionResult.notification?.count > 0) {
       response.notification = {
         message: `🚨 HIGH RISK: Email alert sent to ${predictionResult.notification.count} users`,
         predictionId: predictionResult.prediction._id
       };
     }
-    
+
     return res.json(response);
   } catch (e) {
     console.error(e);
@@ -300,6 +301,7 @@ router.get("/reports", authMiddleware, async (req, res) => {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 10000); // 🔑 Increased to 10,000
     const filter = buildDistrictFilter(req.user);
+    // const filter = buildDistrictFilter(req.user, "district");
     if (req.query.reporter_id) {
       filter.reporter_id = req.query.reporter_id;
     }
