@@ -848,7 +848,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             </td>
                             <td className="p-4">
                               <p className="text-sm text-gray-600">
-                                {report.lat.toFixed(4)}, {report.lng.toFixed(4)}
+                                {typeof report.lat === 'number' ? report.lat.toFixed(4) : 'N/A'}, {typeof report.lng === 'number' ? report.lng.toFixed(4) : 'N/A'}
                               </p>
                             </td>
                             <td className="p-4">

@@ -328,7 +328,7 @@ export const PredictionsDashboard: React.FC<PredictionsDashboardProps> = ({ toke
                       <div className="bg-purple-50 rounded p-3">
                         <p className="text-xs text-purple-600">Confidence</p>
                         <p className="text-lg font-bold text-purple-700">
-                          {prediction.confidence.toFixed(1)}%
+                          {typeof prediction.confidence === 'number' ? prediction.confidence.toFixed(1) : prediction.confidence}%
                         </p>
                       </div>
                     )}
@@ -373,7 +373,7 @@ export const PredictionsDashboard: React.FC<PredictionsDashboardProps> = ({ toke
                         <div className="space-y-4">
                           <div className="bg-gray-50 rounded p-4">
                             <p className="text-sm text-gray-700 mb-3">
-                              <strong>Coordinates:</strong> {prediction.lat.toFixed(6)}, {prediction.lng.toFixed(6)}
+                              <strong>Coordinates:</strong> {typeof prediction.lat === 'number' ? prediction.lat.toFixed(6) : prediction.lat}, {typeof prediction.lng === 'number' ? prediction.lng.toFixed(6) : prediction.lng}
                             </p>
                             
                             {/* Google Maps Embed */}

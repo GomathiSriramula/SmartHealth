@@ -641,7 +641,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
                     </div>
                     <div className="flex items-center space-x-4 text-xs text-gray-500 flex-wrap">
                       <span>📍 {report.location}</span>
-                      <span>🌐 Lat: {report.lat.toFixed(4)}, Lng: {report.lng.toFixed(4)}</span>
+                      <span>🌐 Lat: {typeof report.lat === 'number' ? report.lat.toFixed(4) : 'N/A'}, Lng: {typeof report.lng === 'number' ? report.lng.toFixed(4) : 'N/A'}</span>
                       <span>📅 {new Date(report.reported_at).toLocaleString()}</span>
                     </div>
                   </div>
