@@ -41,6 +41,35 @@ interface AlertData {
   notificationSent: boolean;
 }
 
+// Decode the district (operator's assigned location) from the JWT issued at login.
+// The backend embeds `locations` in the token payload at sign-in (see backend2/utils/auth.js).
+function getDistrictFromToken(jwtToken: string): string {
+  try {
+    const payloadSegment = jwtToken.split(".")[1];
+    const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = decodeURIComponent(
+      atob(normalized)
+        .split("")
+        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join("")
+    );
+    const payload = JSON.parse(decoded);
+    const locations = payload.locations;
+    return Array.isArray(locations) && locations.length > 0 ? locations[0] : "";
+  } catch (e) {
+    console.error("Failed to decode district from token:", e);
+    return "";
+  }
+}
+
+// Format a Date as a value usable by a datetime-local input (YYYY-MM-DDTHH:mm)
+function formatDateTimeLocal(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 const Dashboard: React.FC<DashboardProps> = ({
   onBackToLanding,
   token,
@@ -58,18 +87,29 @@ const Dashboard: React.FC<DashboardProps> = ({
     reporter_type: "",
     patient_age: "",
     sex: "",
-    lat: "",
-    lng: "",
+    village_area: "",
+    severity: "",
+    remarks: "",
     symptoms: [] as string[],
-    reported_at: "",
   });
+
+  // District is auto-filled (read-only) from the logged-in operator's account
+  const [district, setDistrict] = useState("");
+  // Reported Date & Time is auto-filled (read-only) with the current date/time
+  const [reportedAtDisplay, setReportedAtDisplay] = useState(
+    formatDateTimeLocal(new Date())
+  );
+
+  useEffect(() => {
+    setDistrict(getDistrictFromToken(token));
+  }, [token]);
 
   useEffect(() => {
     setActiveTab(userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'alerts' : 'overview');
   }, [userRole]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  
+
   // Alerts state
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
@@ -92,10 +132,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       }
 
       console.log('🔄 Fetching reports for user:', username);
-      
+
       // Only fetch reports for the current user, with limit of 10,000
       const url = `${API_URL}/reports?reporter_id=${encodeURIComponent(username)}&limit=10000`;
-      const res = await fetch(url, { 
+      const res = await fetch(url, {
         headers,
         cache: 'no-cache' // Force fresh data, no caching
       });
@@ -222,21 +262,21 @@ const Dashboard: React.FC<DashboardProps> = ({
     e.preventDefault();
     setSubmitting(true);
     setMessage(""); // Clear any previous messages
-    
+
     try {
       const payload = {
         ...formData,
         reporter_id: username, // 🔑 Always use logged-in username as reporter_id
         patient_age: Number(formData.patient_age),
-        lat: Number(formData.lat),
-        lng: Number(formData.lng),
+        location: district, // 🔑 Auto-filled from the logged-in operator's account
+        reported_at: new Date().toISOString(), // 🔑 Auto-filled with the current date/time
       };
 
       const headers: HeadersInit = {
         "Content-Type": "application/json",
         "x-api-key": "secret-key", // Always include API key as fallback
       };
-      
+
       // Add authorization header if token exists
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
@@ -261,31 +301,32 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       // Show success message
       setMessage("✅ Report submitted successfully! Refreshing data...");
-      
+
       // Reset form
       setFormData({
         reporter_type: "",
         patient_age: "",
         sex: "",
-        lat: "",
-        lng: "",
+        village_area: "",
+        severity: "",
+        remarks: "",
         symptoms: [],
-        reported_at: "",
       });
-      
+      setReportedAtDisplay(formatDateTimeLocal(new Date()));
+
       // Wait a brief moment for backend to process, then fetch updated reports
       // Don't show loading spinner to avoid UI flicker
       await new Promise(resolve => setTimeout(resolve, 500));
       await fetchReports(false);
-      
+
       console.log('🔄 Dashboard data refreshed. New total:', reports.length + 1);
-      
+
       // Update success message
       setMessage("✅ Report submitted successfully! Dashboard updated.");
-      
+
       // Auto-clear success message after 5 seconds
       setTimeout(() => setMessage(""), 5000);
-      
+
     } catch (err) {
       console.error('❌ Submission error:', err);
       setMessage("❌ Failed to submit report. Please try again.");
@@ -341,11 +382,10 @@ const Dashboard: React.FC<DashboardProps> = ({
   }) => (
     <button
       onClick={() => setActiveTab(id)}
-      className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-        activeTab === id
+      className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === id
           ? "bg-blue-600 text-white"
           : "text-gray-600 hover:bg-gray-100"
-      }`}
+        }`}
     >
       {icon}
       <span>{label}</span>
@@ -393,21 +433,21 @@ const Dashboard: React.FC<DashboardProps> = ({
               <TabButton
                 id="reports"
                 label="Reports"
-              icon={
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  ></path>
-                </svg>
-              }
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    ></path>
+                  </svg>
+                }
               />
             )}
             {/* Submit Report - Management users only */}
@@ -532,7 +572,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </svg>
               }
             />
-            
+
           </div>
         </aside>
 
@@ -702,11 +742,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                         >
                           <div className="flex items-center space-x-4">
                             <div
-                              className={`w-3 h-3 rounded-full ${
-                                (report.symptoms || []).length >= 3
+                              className={`w-3 h-3 rounded-full ${(report.symptoms || []).length >= 3
                                   ? "bg-red-400"
                                   : "bg-yellow-400"
-                              }`}
+                                }`}
                             ></div>
                             <div>
                               <p className="font-medium text-gray-900">
@@ -860,19 +899,18 @@ const Dashboard: React.FC<DashboardProps> = ({
                             </td>
                             <td className="p-4">
                               <span
-                                className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                  report.symptoms.length >= 3
+                                className={`px-3 py-1 rounded-full text-xs font-medium ${report.symptoms.length >= 3
                                     ? "bg-red-100 text-red-800"
                                     : report.symptoms.length >= 2
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : "bg-green-100 text-green-800"
-                                }`}
+                                      ? "bg-yellow-100 text-yellow-800"
+                                      : "bg-green-100 text-green-800"
+                                  }`}
                               >
                                 {report.symptoms.length >= 3
                                   ? "Critical"
                                   : report.symptoms.length >= 2
-                                  ? "Moderate"
-                                  : "Mild"}
+                                    ? "Moderate"
+                                    : "Mild"}
                               </span>
                             </td>
                           </tr>
@@ -992,36 +1030,61 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Latitude
+                        District
                       </label>
                       <input
-                        type="number"
-                        step="any"
-                        value={formData.lat}
+                        type="text"
+                        value={district}
+                        readOnly
+                        disabled
+                        className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                        placeholder="Auto-filled from your operator account"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        This is automatically set to your assigned district
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Village/Area
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.village_area}
                         onChange={(e) =>
-                          setFormData({ ...formData, lat: e.target.value })
+                          setFormData({
+                            ...formData,
+                            village_area: e.target.value,
+                          })
                         }
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Enter latitude"
+                        placeholder="Enter village or area name"
                         required
                       />
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Longitude
+                        Severity
                       </label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={formData.lng}
+                      <select
+                        value={formData.severity}
                         onChange={(e) =>
-                          setFormData({ ...formData, lng: e.target.value })
+                          setFormData({
+                            ...formData,
+                            severity: e.target.value,
+                          })
                         }
                         className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Enter longitude"
                         required
-                      />
+                      >
+                        <option value="">Select Severity</option>
+                        <option value="Mild">Mild</option>
+                        <option value="Moderate">Moderate</option>
+                        <option value="Severe">Severe</option>
+                        <option value="Critical">Critical</option>
+                      </select>
                     </div>
                   </div>
 
@@ -1031,16 +1094,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </label>
                     <input
                       type="datetime-local"
-                      value={formData.reported_at}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          reported_at: e.target.value,
-                        })
-                      }
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
+                      value={reportedAtDisplay}
+                      readOnly
+                      disabled
+                      className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      This is automatically set to the current date and time
+                    </p>
                   </div>
 
                   <div>
@@ -1067,20 +1128,39 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Additional Remarks
+                    </label>
+                    <textarea
+                      value={formData.remarks}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          remarks: e.target.value,
+                        })
+                      }
+                      rows={4}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter any additional notes or observations (optional)"
+                    />
+                  </div>
+
                   <div className="flex justify-end space-x-4">
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setFormData({
                           reporter_type: "",
                           patient_age: "",
                           sex: "",
-                          lat: "",
-                          lng: "",
+                          village_area: "",
+                          severity: "",
+                          remarks: "",
                           symptoms: [],
-                          reported_at: "",
-                        })
-                      }
+                        });
+                        setReportedAtDisplay(formatDateTimeLocal(new Date()));
+                      }}
                       disabled={submitting}
                       className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -1141,18 +1221,18 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </div>
                 ) : (
                   alerts.map((alert) => {
-                    const bgColor = alert.riskLevel === "HIGH" ? "bg-red-50 border-red-200" 
-                                  : alert.riskLevel === "MEDIUM" ? "bg-yellow-50 border-yellow-200"
-                                  : "bg-green-50 border-green-200";
+                    const bgColor = alert.riskLevel === "HIGH" ? "bg-red-50 border-red-200"
+                      : alert.riskLevel === "MEDIUM" ? "bg-yellow-50 border-yellow-200"
+                        : "bg-green-50 border-green-200";
                     const textColor = alert.riskLevel === "HIGH" ? "text-red-800"
-                                    : alert.riskLevel === "MEDIUM" ? "text-yellow-800"
-                                    : "text-green-800";
+                      : alert.riskLevel === "MEDIUM" ? "text-yellow-800"
+                        : "text-green-800";
                     const iconColor = alert.riskLevel === "HIGH" ? "text-red-600"
-                                    : alert.riskLevel === "MEDIUM" ? "text-yellow-600"
-                                    : "text-green-600";
+                      : alert.riskLevel === "MEDIUM" ? "text-yellow-600"
+                        : "text-green-600";
                     const bgIconColor = alert.riskLevel === "HIGH" ? "bg-red-100"
-                                      : alert.riskLevel === "MEDIUM" ? "bg-yellow-100"
-                                      : "bg-green-100";
+                      : alert.riskLevel === "MEDIUM" ? "bg-yellow-100"
+                        : "bg-green-100";
 
                     return (
                       <div key={alert._id} className={`border rounded-xl p-6 ${bgColor} border`}>
@@ -1234,8 +1314,8 @@ const Dashboard: React.FC<DashboardProps> = ({
           {/* CSV Upload Tab - Management users only */}
           {/* CSV Upload Tab - Management users only */}
           {activeTab === "csv-upload" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
-            <CSVUpload 
-              token={token} 
+            <CSVUpload
+              token={token}
               onUploadSuccess={() => fetchReports(false)}
             />
           )}
@@ -1255,7 +1335,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             <PredictionsDashboard token={token} />
           )}
 
-          
+
         </main>
       </div>
     </div>
