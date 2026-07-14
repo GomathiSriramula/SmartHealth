@@ -303,6 +303,41 @@ Clinic Staff,55,Female,Kothapet,Moderate,Abdominal Pain|Fatigue,2026-06-04T16:20
                   </p>
                 </div>
               )}
+
+              {/* High-Risk Alert */}
+              {result.riskAlert && (
+                <div className="mt-4 p-4 bg-red-50 rounded-lg border-2 border-red-300">
+                  <h3 className="font-semibold text-red-800 mb-2">🚨 High-Risk Alert Triggered</h3>
+                  <p className="text-sm text-red-800 mb-2">{result.riskAlert.message}</p>
+                  <div className="grid grid-cols-2 gap-4 mb-2">
+                    <div>
+                      <p className="text-xs text-red-600">High-Risk Cases</p>
+                      <p className="text-xl font-bold text-red-800">{result.riskAlert.highRiskCases}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-red-600">Emails Sent</p>
+                      <p className="text-xl font-bold text-red-800">{result.riskAlert.emailsSent}</p>
+                    </div>
+                  </div>
+                  {result.riskAlert.predictionId && (
+                    <p className="text-xs text-red-600">
+                      Prediction ID: <span className="font-mono">{result.riskAlert.predictionId}</span>
+                    </p>
+                  )}
+                  {result.riskAlert.alert && (
+                    <div className="mt-2 pt-2 border-t border-red-200">
+                      <p className="text-sm text-red-800">
+                        <strong>Alert {result.riskAlert.alert.action}:</strong> {result.riskAlert.alert.message}
+                      </p>
+                      {result.riskAlert.alert.alertId && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Alert ID: <span className="font-mono">{result.riskAlert.alert.alertId}</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
