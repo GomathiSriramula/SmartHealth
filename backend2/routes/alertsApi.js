@@ -96,17 +96,19 @@ router.get('/alerts/:id', authMiddleware, async (req, res) => {
  * POST /api/alerts/:id/notify
  * Manually send notification for an alert
  * Idempotent - safe to call multiple times
- * Role-based access: ADMIN only
+ *
+ * Role-based access:
+ * - ADMIN: any alert
+ * - OPERATOR: only alerts in their own assigned district
  */
 router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
   try {
-    // Authorization: Only ADMIN can send notifications
     const userRole = req.user.role || 'USER';
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'ADMIN' && userRole !== 'OPERATOR') {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'Only ADMIN can send notifications'
+        message: 'Only ADMIN or OPERATOR can send notifications'
       });
     }
 
@@ -116,6 +118,15 @@ router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
       return res.status(404).json({
         success: false,
         error: 'Alert not found',
+      });
+    }
+
+    // Operators may only act on alerts within their own district
+    if (userRole === 'OPERATOR' && !operatorMatchesDistrict(req.user, alert.location)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Operators can only send notifications for alerts in their assigned district'
       });
     }
 
@@ -143,19 +154,19 @@ router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
 /**
  * POST /api/alerts/:id/resolve
  * Manually resolve an alert
- * 
- * Security Rules:
- * - Only ADMIN users can resolve alerts
+ *
+ * Role-based access:
+ * - ADMIN: any alert
+ * - OPERATOR: only alerts in their own assigned district
  */
 router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
   try {
-    // Authorization: Only ADMIN can resolve alerts
     const userRole = req.user.role || 'USER';
-    if (userRole !== 'ADMIN') {
+    if (userRole !== 'ADMIN' && userRole !== 'OPERATOR') {
       return res.status(403).json({
         success: false,
         error: 'Forbidden',
-        message: 'Only admins can resolve alerts'
+        message: 'Only ADMIN or OPERATOR can resolve alerts'
       });
     }
 
@@ -166,6 +177,15 @@ router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
       return res.status(404).json({
         success: false,
         error: 'Alert not found',
+      });
+    }
+
+    // Operators may only act on alerts within their own district
+    if (userRole === 'OPERATOR' && !operatorMatchesDistrict(req.user, alert.location)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Operators can only resolve alerts in their assigned district'
       });
     }
 
@@ -205,7 +225,7 @@ router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
 router.get('/alerts/stats/summary', authMiddleware, async (req, res) => {
   try {
     let query = buildDistrictFilter(req.user);
-    
+
     // Total alerts
     const totalAlerts = await Alert.countDocuments(query);
 

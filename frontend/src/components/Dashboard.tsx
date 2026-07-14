@@ -166,7 +166,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       const headers: HeadersInit = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch(`${API_URL}/api/alerts?status=all&limit=50`, { headers });
+      const res = await fetch(`${API_URL}/api/alerts?status=active&limit=50`, { headers });
       if (res.ok) {
         const data = await res.json();
         setAlerts(data.alerts || []);
@@ -203,12 +203,18 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
 
       if (res.ok) {
-        const result = await res.json();
-        setAlerts(prev => prev.map(a => a._id === alertId ? result.alert : a));
-        fetchAlerts(); // Refresh stats
+        // Since this tab only fetches status=active, a resolved alert
+        // should be removed from view rather than just updated in place.
+        setAlerts(prev => prev.filter(a => a._id !== alertId));
+        fetchAlerts(); // Refresh stats and pick up any server-side changes
+      } else {
+        const errBody = await res.json().catch(() => ({}));
+        console.error('Failed to resolve alert:', res.status, errBody);
+        setMessage(errBody.message || "⚠️ Failed to resolve alert");
       }
     } catch (err) {
       console.error('Error resolving alert:', err);
+      setMessage("🔴 Cannot reach the server while resolving alert");
     } finally {
       setActionInProgress(null);
     }
@@ -230,9 +236,14 @@ const Dashboard: React.FC<DashboardProps> = ({
       if (res.ok) {
         const result = await res.json();
         setAlerts(prev => prev.map(a => a._id === alertId ? result.alert : a));
+      } else {
+        const errBody = await res.json().catch(() => ({}));
+        console.error('Failed to send notification:', res.status, errBody);
+        setMessage(errBody.message || "⚠️ Failed to send notification");
       }
     } catch (err) {
       console.error('Error sending notification:', err);
+      setMessage("🔴 Cannot reach the server while sending notification");
     } finally {
       setActionInProgress(null);
     }
@@ -383,8 +394,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     <button
       onClick={() => setActiveTab(id)}
       className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${activeTab === id
-          ? "bg-blue-600 text-white"
-          : "text-gray-600 hover:bg-gray-100"
+        ? "bg-blue-600 text-white"
+        : "text-gray-600 hover:bg-gray-100"
         }`}
     >
       {icon}
@@ -743,8 +754,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                           <div className="flex items-center space-x-4">
                             <div
                               className={`w-3 h-3 rounded-full ${(report.symptoms || []).length >= 3
-                                  ? "bg-red-400"
-                                  : "bg-yellow-400"
+                                ? "bg-red-400"
+                                : "bg-yellow-400"
                                 }`}
                             ></div>
                             <div>
@@ -900,10 +911,10 @@ const Dashboard: React.FC<DashboardProps> = ({
                             <td className="p-4">
                               <span
                                 className={`px-3 py-1 rounded-full text-xs font-medium ${report.symptoms.length >= 3
-                                    ? "bg-red-100 text-red-800"
-                                    : report.symptoms.length >= 2
-                                      ? "bg-yellow-100 text-yellow-800"
-                                      : "bg-green-100 text-green-800"
+                                  ? "bg-red-100 text-red-800"
+                                  : report.symptoms.length >= 2
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-green-100 text-green-800"
                                   }`}
                               >
                                 {report.symptoms.length >= 3

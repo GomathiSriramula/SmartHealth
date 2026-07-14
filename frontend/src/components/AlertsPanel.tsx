@@ -66,19 +66,39 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
 
       if (response.ok) {
         const result = await response.json();
-        setAlerts(prev => prev.map(a => a._id === alertId ? result.alert : a));
+
+        setAlerts(prev => {
+          // If we're only viewing "active" alerts, the resolved one should disappear
+          if (filterStatus === "active") {
+            return prev.filter(a => a._id !== alertId);
+          }
+          // Otherwise (e.g. "all" or "resolved" view) just update it in place
+          return prev.map(a => (a._id === alertId ? result.alert : a));
+        });
+
+        setStats(prev => ({
+          ...prev,
+          activeAlerts: Math.max(0, prev.activeAlerts - 1),
+          resolvedAlerts: prev.resolvedAlerts + 1,
+        }));
+
         if (selectedAlert?._id === alertId) {
           setSelectedAlert(result.alert);
         }
+
+        setError("");
       } else {
-        console.error("Failed to resolve alert");
+        const errBody = await response.json().catch(() => ({}));
+        console.error("Failed to resolve alert:", response.status, errBody);
+        setError(errBody.message || "⚠️ Failed to resolve alert");
       }
     } catch (err) {
       console.error("Error resolving alert:", err);
+      setError("🔴 Cannot reach the server while resolving alert");
     } finally {
       setActionInProgress(null);
     }
-  }, [API_URL, getHeaders, selectedAlert]);
+  }, [API_URL, getHeaders, selectedAlert, filterStatus]);
 
   const resendNotification = useCallback(async (alertId: string) => {
     setActionInProgress(alertId);
@@ -91,15 +111,19 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
 
       if (response.ok) {
         const result = await response.json();
-        setAlerts(prev => prev.map(a => a._id === alertId ? result.alert : a));
+        setAlerts(prev => prev.map(a => (a._id === alertId ? result.alert : a)));
         if (selectedAlert?._id === alertId) {
           setSelectedAlert(result.alert);
         }
+        setError("");
       } else {
-        console.error("Failed to resend notification");
+        const errBody = await response.json().catch(() => ({}));
+        console.error("Failed to resend notification:", response.status, errBody);
+        setError(errBody.message || "⚠️ Failed to send notification");
       }
     } catch (err) {
       console.error("Error resending notification:", err);
+      setError("🔴 Cannot reach the server while sending notification");
     } finally {
       setActionInProgress(null);
     }
@@ -306,13 +330,12 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
           alerts.map((alert) => (
             <div
               key={alert._id}
-              className={`rounded-lg border-2 p-4 transition-all cursor-pointer hover:shadow-md ${
-                alert.riskLevel === "HIGH"
+              className={`rounded-lg border-2 p-4 transition-all cursor-pointer hover:shadow-md ${alert.riskLevel === "HIGH"
                   ? "border-red-300 bg-red-50"
                   : alert.riskLevel === "MEDIUM"
-                  ? "border-yellow-300 bg-yellow-50"
-                  : "border-green-300 bg-green-50"
-              }`}
+                    ? "border-yellow-300 bg-yellow-50"
+                    : "border-green-300 bg-green-50"
+                }`}
             >
               {/* Basic Info */}
               <div className="flex items-start justify-between gap-4">
@@ -333,9 +356,8 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
                 </div>
                 <div className="text-right flex flex-col items-end gap-2">
                   <span
-                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${
-                      alert.status === "active" ? "bg-red-200 text-red-800" : "bg-green-200 text-green-800"
-                    }`}
+                    className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${alert.status === "active" ? "bg-red-200 text-red-800" : "bg-green-200 text-green-800"
+                      }`}
                   >
                     {alert.status.toUpperCase()}
                   </span>
