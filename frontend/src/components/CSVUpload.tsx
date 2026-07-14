@@ -149,11 +149,11 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) 
   };
 
   const handleDownloadSample = () => {
-    const csvContent = `reporter_type,patient_age,sex,district,village_area,severity,symptoms,reported_at,remarks
-Clinic Staff,45,Male,Warangal,Ramapur,Moderate,Fever|Headache,2026-06-01T10:30Z,Patient advised to rest and hydrate
-ASHA Worker,32,Female,Warangal,Ramapur,Mild,Diarrhea,2026-06-02T14:15Z,
-Community Volunteer,28,Male,Warangal,Kothapet,Severe,Vomiting|Nausea,2026-06-03T08:45Z,Referred to local clinic
-Clinic Staff,55,Female,Warangal,Kothapet,Moderate,Abdominal Pain|Fatigue,2026-06-04T16:20Z,`;
+    const csvContent = `reporter_type,patient_age,sex,village_area,severity,symptoms,reported_at,remarks
+Clinic Staff,45,Male,Ramapur,Moderate,Fever|Headache,2026-06-01T10:30Z,Patient advised to rest and hydrate
+ASHA Worker,32,Female,Ramapur,Mild,Diarrhea,2026-06-02T14:15Z,
+Community Volunteer,28,Male,Kothapet,Severe,Vomiting|Nausea,2026-06-03T08:45Z,Referred to local clinic
+Clinic Staff,55,Female,Kothapet,Moderate,Abdominal Pain|Fatigue,2026-06-04T16:20Z,`;
     const filename = 'sample_case_reports.csv';
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
