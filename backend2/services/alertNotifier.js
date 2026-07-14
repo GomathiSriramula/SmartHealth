@@ -5,6 +5,13 @@
  * Minimal content: location, risk level, timestamp.
  * Safe error handling - failures don't crash backend.
  * Idempotent - can be called multiple times safely.
+ *
+ * Recipients:
+ *  - If called with an explicit `recipients` array (manual notify flow —
+ *    see routes/alertsApi.js), those are used as-is.
+ *  - If called with no `recipients` (automatic, system-triggered alert),
+ *    it notifies ALL admins + the OPERATOR of the affected district only.
+ *    Regular USERS are never notified.
  */
 
 const nodemailer = require('nodemailer');
@@ -26,7 +33,8 @@ const transporter = nodemailer.createTransport({
  * Send alert notification email
  * 
  * @param {Object} alert - Alert object from MongoDB
- * @param {Array<string>} recipients - Email addresses to send to
+ * @param {Array<string>} recipients - Email addresses to send to. If omitted,
+ *   recipients are auto-computed as admins + operator of alert.location.
  * @returns {Promise<Object>} { success: boolean, message: string }
  */
 async function sendAlertNotification(alert, recipients = null) {
@@ -40,8 +48,23 @@ async function sendAlertNotification(alert, recipients = null) {
       };
     }
 
-    // Use provided recipients or default admin email
-    const emailRecipients = recipients || [process.env.ADMIN_EMAIL || 'admin@smarthealthwatersystem.com'];
+    // Explicit recipients (manual notify already computes these based on
+    // who's sending — see alertsApi.js). If none were passed, this is an
+    // AUTOMATIC system-triggered alert: notify all admins + the operator of
+    // the affected district only — never regular users.
+    let emailRecipients = recipients;
+    if (!emailRecipients) {
+      const { getAutomaticAlertRecipients } = require('../utils/notificationRecipients');
+      emailRecipients = await getAutomaticAlertRecipients(alert.location);
+    }
+
+    if (!emailRecipients || emailRecipients.length === 0) {
+      console.log(`[AlertNotifier] No admin/operator emails found for ${alert.location}, skipping`);
+      return {
+        success: true,
+        message: 'No admins/operator to notify',
+      };
+    }
 
     // Check if already notified (idempotency)
     if (alert.notificationSent) {

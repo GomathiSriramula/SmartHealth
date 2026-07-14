@@ -57,12 +57,12 @@ async function sendEmail(to, subject, text, html = null) {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    
+
     // Log preview URL for Ethereal (development)
     if (info.messageId && !process.env.SMTP_HOST) {
       console.log("📧 Preview URL: %s", nodemailer.getTestMessageUrl(info));
     }
-    
+
     return info;
   } catch (error) {
     console.error("Error sending email:", error.message);
@@ -93,12 +93,12 @@ async function sendBulkEmail(recipients, subject, text, html = null) {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    
+
     // Log preview URL for Ethereal (development)
     if (info.messageId && !process.env.SMTP_HOST) {
       console.log("📧 Preview URL: %s", nodemailer.getTestMessageUrl(info));
     }
-    
+
     console.log(`✅ Email sent to ${recipients.length} recipients`);
     return info;
   } catch (error) {
@@ -127,20 +127,20 @@ function generatePredictionEmailHTML(prediction) {
 
   const riskLevelLower = riskLevel.toLowerCase();
   const isHighRisk = riskLevelLower === "high";
-  
+
   const riskColor =
     riskLevelLower === "high"
       ? "#dc2626"
       : riskLevelLower === "medium"
-      ? "#f59e0b"
-      : "#10b981";
-      
+        ? "#f59e0b"
+        : "#10b981";
+
   const riskBgColor =
     riskLevelLower === "high"
       ? "#fee2e2"
       : riskLevelLower === "medium"
-      ? "#fef3c7"
-      : "#d1fae5";
+        ? "#fef3c7"
+        : "#d1fae5";
 
   return `
 <!DOCTYPE html>
@@ -193,15 +193,15 @@ function generatePredictionEmailHTML(prediction) {
                                 <tr style="border-bottom: 1px solid #e5e7eb;">
                                     <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📅 Predicted Date:</td>
                                     <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${new Date(
-                                      predictedDate
-                                    ).toLocaleString('en-US', { 
-                                      weekday: 'long', 
-                                      year: 'numeric', 
-                                      month: 'long', 
-                                      day: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}</td>
+    predictedDate
+  ).toLocaleString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })}</td>
                                 </tr>
                                 ${confidence ? `
                                 <tr style="border-bottom: 1px solid #e5e7eb;">
@@ -222,9 +222,8 @@ function generatePredictionEmailHTML(prediction) {
                                 <p style="margin: 0; color: #4b5563; font-size: 14px; line-height: 1.6;">${details}</p>
                             </div>
                             
-                            ${
-                              recommendations.length > 0
-                                ? `
+                            ${recommendations.length > 0
+      ? `
                             <div style="margin: 30px 0; padding: 20px; background-color: ${isHighRisk ? riskBgColor : '#f0fdf4'}; border-radius: 8px; border: 2px solid ${isHighRisk ? riskColor : '#10b981'};">
                                 <h3 style="margin: 0 0 15px; color: ${isHighRisk ? riskColor : '#059669'}; font-size: 18px;">${isHighRisk ? '⚠️' : '✓'} ${isHighRisk ? 'URGENT' : ''} Recommendations</h3>
                                 <ul style="margin: 0; padding-left: 20px; color: #4b5563; font-size: 14px; line-height: 1.8;">
@@ -232,8 +231,8 @@ function generatePredictionEmailHTML(prediction) {
                                 </ul>
                             </div>
                             `
-                                : ""
-                            }
+      : ""
+    }
                             
                             ${isHighRisk ? `
                             <div style="margin: 30px 0; padding: 15px; background-color: #fff7ed; border-left: 4px solid #f59e0b; border-radius: 4px;">
@@ -245,9 +244,8 @@ function generatePredictionEmailHTML(prediction) {
                             ` : ''}
                             
                             <div style="margin: 30px 0; text-align: center;">
-                                <a href="${
-                                  process.env.FRONTEND_URL || "http://localhost:5173"
-                                }/predictions" 
+                                <a href="${process.env.FRONTEND_URL || "http://localhost:5173"
+    }/predictions" 
                                    style="display: inline-block; padding: ${isHighRisk ? '16px 40px' : '12px 30px'}; background-color: ${isHighRisk ? riskColor : '#3b82f6'}; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: ${isHighRisk ? '18px' : '16px'}; font-weight: bold; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
                                     ${isHighRisk ? '🔍 View Alert Details' : 'View Dashboard'}
                                 </a>
@@ -320,45 +318,39 @@ ${details}
 }
 
 /**
- * Send prediction notification to all registered users with emails
- * ONLY for HIGH RISK predictions
+ * Send prediction notification to the ADMINS + the OPERATOR of the affected
+ * district ONLY. Regular USERS are never notified. ONLY for HIGH RISK
+ * predictions.
  * @param {object} prediction - Prediction data
  * @param {boolean} forceNotify - Force notification even if not high risk (default: false)
  * @returns {Promise<object>} - Result object
  */
 async function notifyUsersOfPrediction(prediction, forceNotify = false) {
   try {
-    const { User } = require("../models");
-    
     // 🔑 Only send emails for HIGH RISK predictions (unless forced)
     const isHighRisk = prediction.riskLevel && prediction.riskLevel.toLowerCase() === "high";
-    
+
     if (!isHighRisk && !forceNotify) {
       console.log(`⚠️  Prediction risk level is '${prediction.riskLevel}' - skipping email notification (only HIGH RISK triggers emails)`);
-      return { 
-        success: true, 
-        message: "Notification skipped - not high risk", 
+      return {
+        success: true,
+        message: "Notification skipped - not high risk",
         count: 0,
-        riskLevel: prediction.riskLevel 
+        riskLevel: prediction.riskLevel
       };
     }
-    
-    // Get all users with valid email addresses
-    const users = await User.find({ email: { $exists: true, $ne: null, $ne: "" } });
-    
-    if (users.length === 0) {
-      console.log("⚠️  No users with email addresses found.");
-      return { success: true, message: "No users to notify", count: 0 };
-    }
 
-    const emails = users.map((user) => user.email).filter(Boolean);
-    
+    // 🔒 Only ADMINS + the OPERATOR of the affected district get notified.
+    // Regular USERS are never notified (automatic system alert).
+    const { getAutomaticAlertRecipients } = require("./notificationRecipients");
+    const emails = await getAutomaticAlertRecipients(prediction.location);
+
     if (emails.length === 0) {
-      console.log("⚠️  No valid email addresses found.");
-      return { success: true, message: "No valid emails", count: 0 };
+      console.log("⚠️  No admin/operator email addresses found for this district.");
+      return { success: true, message: "No admins/operator to notify", count: 0 };
     }
 
-    console.log(`🚨 HIGH RISK ALERT: Sending notifications to ${emails.length} users`);
+    console.log(`🚨 HIGH RISK ALERT: Sending notifications to ${emails.length} admin(s)/operator`);
 
     const subject = `🚨 URGENT: High Risk ${prediction.predictionType || "Health Alert"} Detected`;
     const text = generatePredictionEmailText(prediction);
@@ -367,15 +359,15 @@ async function notifyUsersOfPrediction(prediction, forceNotify = false) {
     // Retry mechanism for email sending
     let lastError = null;
     const maxRetries = 3;
-    
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         await sendBulkEmail(emails, subject, text, html);
         console.log(`✅ Email notifications sent successfully on attempt ${attempt}`);
-        
+
         return {
           success: true,
-          message: `High risk notification sent to ${emails.length} users`,
+          message: `High risk notification sent to ${emails.length} admin(s)/operator`,
           count: emails.length,
           riskLevel: prediction.riskLevel,
           attempt,
@@ -383,7 +375,7 @@ async function notifyUsersOfPrediction(prediction, forceNotify = false) {
       } catch (error) {
         lastError = error;
         console.error(`❌ Email send attempt ${attempt} failed:`, error.message);
-        
+
         if (attempt < maxRetries) {
           // Wait before retry (exponential backoff)
           const waitTime = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
@@ -392,10 +384,10 @@ async function notifyUsersOfPrediction(prediction, forceNotify = false) {
         }
       }
     }
-    
+
     // All retries failed
     throw new Error(`Failed to send emails after ${maxRetries} attempts: ${lastError.message}`);
-    
+
   } catch (error) {
     console.error("❌ Error notifying users:", error.message);
     throw error;
@@ -403,7 +395,8 @@ async function notifyUsersOfPrediction(prediction, forceNotify = false) {
 }
 
 /**
- * Send alert notification to all health officials
+ * Send alert notification to the ADMINS + the OPERATOR of the affected
+ * district ONLY. Regular USERS are never notified.
  * Triggered when a new alert is created (2+ consecutive HIGH predictions)
  * 
  * @param {object} alert - Alert document from MongoDB
@@ -432,26 +425,16 @@ async function notifyAlertCreation(alert) {
       };
     }
 
-    // Get all health officials/admin users
-    const { User } = require("../models");
-    const users = await User.find({ email: { $exists: true, $ne: null, $ne: "" } });
+    // 🔒 Only ADMINS + the OPERATOR of the affected district get notified.
+    // Regular USERS are never notified (automatic system alert).
+    const { getAutomaticAlertRecipients } = require("./notificationRecipients");
+    const recipients = await getAutomaticAlertRecipients(alert.location);
 
-    if (users.length === 0) {
-      console.log(`📧 [Alert Notification] No users found to notify for alert ${alert._id}`);
-      return {
-        success: true,
-        message: "No users to notify",
-        count: 0,
-        alertId: alert._id,
-      };
-    }
-
-    const recipients = users.map((u) => u.email).filter(Boolean);
     if (recipients.length === 0) {
-      console.log(`📧 [Alert Notification] No valid email addresses found`);
+      console.log(`📧 [Alert Notification] No admin/operator emails found to notify for alert ${alert._id}`);
       return {
         success: true,
-        message: "No valid emails",
+        message: "No admins/operator to notify",
         count: 0,
         alertId: alert._id,
       };
@@ -460,20 +443,20 @@ async function notifyAlertCreation(alert) {
     // Format alert details
     const timestamp = alert.createdAt
       ? new Date(alert.createdAt).toLocaleString("en-US", {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
       : new Date().toLocaleString();
 
     // Build simple email content
-    const subject = `🚨 ALERT: Water-Borne Disease OUTBREAK - ${alert.location}`;
+    const subject = `🚨 ALERT: Disease OUTBREAK - ${alert.location}`;
 
     const textBody = `
-WATER-BORNE DISEASE OUTBREAK ALERT
+DISEASE OUTBREAK ALERT
 
 Location: ${alert.location}
 Risk Level: ${alert.riskLevel || "HIGH"}
@@ -483,17 +466,14 @@ Detected: ${timestamp}
 DETAILS:
 ${alert.reason || "2 consecutive HIGH risk predictions detected"}
 
-Number of triggering predictions: ${
-      alert.triggeringPredictions ? alert.triggeringPredictions.length : 0
-    }
+Number of triggering predictions: ${alert.triggeringPredictions ? alert.triggeringPredictions.length : 0
+      }
 
 RECOMMENDED ACTIONS:
 1. Immediately assess the situation in ${alert.location}
-2. Test water source for contaminants
-3. Alert local health authorities
-4. Implement water safety measures
-5. Monitor for additional cases
-6. Update crisis response team
+2. Alert local health authorities
+3. Monitor for additional cases
+4. Update crisis response team
 
 ---
 This is an automated alert from SmartHealth System.
@@ -522,7 +502,7 @@ Alert Status: ${alert.status}
   <div class="container">
     <div class="header">
       <h1>🚨 OUTBREAK ALERT 🚨</h1>
-      <p style="margin: 10px 0; font-size: 16px;">Water-Borne Disease Risk</p>
+      <p style="margin: 10px 0; font-size: 16px;">Community Outbreak Risk</p>
     </div>
     
     <div class="content">
@@ -535,8 +515,7 @@ Alert Status: ${alert.status}
       <div class="value">${alert.location}</div>
       
       <div class="label">⚠️ Risk Level</div>
-      <div class="value" style="color: #dc2626; font-weight: bold; font-size: 18px;">${
-        alert.riskLevel || "HIGH"
+      <div class="value" style="color: #dc2626; font-weight: bold; font-size: 18px;">${alert.riskLevel || "HIGH"
       }</div>
       
       <div class="label">📅 Detected</div>
@@ -552,9 +531,7 @@ Alert Status: ${alert.status}
         <p style="margin: 0; font-weight: bold; color: #f59e0b;">✓ RECOMMENDED ACTIONS</p>
         <ol style="margin: 10px 0; color: #78350f;">
           <li>Immediately assess the situation in ${alert.location}</li>
-          <li>Test water source for contaminants</li>
           <li>Alert local health authorities</li>
-          <li>Implement water safety measures</li>
           <li>Monitor for additional cases</li>
           <li>Update crisis response team</li>
         </ol>
@@ -562,7 +539,7 @@ Alert Status: ${alert.status}
     </div>
     
     <div class="footer">
-      <p style="margin: 0;">This is an automated alert from SmartHealth Water Monitoring System</p>
+      <p style="margin: 0;">This is an automated alert from SmartHealth Monitoring System</p>
       <p style="margin: 5px 0 0;">Alert Status: ${alert.status}</p>
     </div>
   </div>
@@ -599,7 +576,7 @@ Alert Status: ${alert.status}
 
         return {
           success: true,
-          message: `Alert notification sent to ${recipients.length} health officials`,
+          message: `Alert notification sent to ${recipients.length} admin(s)/operator`,
           count: recipients.length,
           alertId: alert._id,
           attempt,

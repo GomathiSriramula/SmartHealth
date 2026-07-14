@@ -12,10 +12,11 @@ const { notifyAlertCreation } = require('../utils/mailer');
  * 
  * Alert Rules:
  * 1. Need exactly TWO consecutive HIGH predictions at same location
+ *    (set ALERT_THRESHOLD = 1 below if a single HIGH should trigger instead)
  * 2. Predictions must be recent (configurable, default 48 hours)
  * 3. No new alert if one already exists for this location
  * 4. Resolve previous alert if current prediction is not HIGH
- * 5. A single HIGH must NOT trigger alert
+ * 5. A single HIGH must NOT trigger alert (at ALERT_THRESHOLD = 2)
  */
 
 const ALERT_THRESHOLD = 2; // Need exactly 2 consecutive HIGH risks
@@ -90,9 +91,6 @@ async function checkForAlerts(prediction) {
         predictionId: prediction._id,
         risk: prediction.risk || prediction.riskLevel,
         confidence: prediction.confidence,
-        pH: prediction.waterQuality?.pH,
-        Turbidity: prediction.waterQuality?.Turbidity,
-        Dissolved_Oxygen: prediction.waterQuality?.Dissolved_Oxygen,
         predictedAt: prediction.predictedAt || prediction.predictedDate,
       });
 
@@ -112,12 +110,64 @@ async function checkForAlerts(prediction) {
       };
     }
 
-    // Step 4: NO active alert exists - check for previous HIGH predictions
+    // Step 4: NO active alert exists yet.
+
+    // Step 4a: Threshold is 1 (default) — a single HIGH is enough. Create the
+    // alert immediately, no need to look for previous HIGH predictions.
+    if (ALERT_THRESHOLD <= 1) {
+      console.log(`✅ [Alert Creator] THRESHOLD MET: single HIGH risk detected at ${location} — creating alert immediately.`);
+
+      const newAlert = new Alert({
+        location: location,
+        riskLevel: 'HIGH',
+        reason: `HIGH risk prediction detected at ${location}`,
+        triggeringPredictions: [
+          {
+            predictionId: prediction._id,
+            risk: prediction.risk || prediction.riskLevel,
+            confidence: prediction.confidence,
+            predictedAt: prediction.predictedAt || prediction.predictedDate,
+          },
+        ],
+        status: 'active',
+        notificationSent: false,
+        metadata: {
+          sourceRequest: 'auto-detection',
+          triggeredBy: 'prediction-check',
+          escalationLevel: 1,
+        },
+      });
+
+      await newAlert.save();
+
+      console.log(`🚨 [Alert Creator] NEW ALERT CREATED: ${newAlert._id} for location: ${location}`);
+
+      // Send email notification to health officials (non-blocking)
+      try {
+        const notificationResult = await notifyAlertCreation(newAlert);
+        if (notificationResult.success) {
+          console.log(`✅ [Alert Notification] ${notificationResult.message}`);
+        } else {
+          console.warn(`⚠️  [Alert Notification] Failed but continuing: ${notificationResult.message}`);
+        }
+      } catch (notificationError) {
+        console.error(`⚠️  [Alert Notification] Error (non-blocking): ${notificationError.message}`);
+      }
+
+      return {
+        alert: newAlert,
+        action: 'created',
+        message: `Alert created for ${location}: HIGH risk prediction detected`,
+      };
+    }
+
+    // Step 4b: Threshold > 1 — look for enough previous consecutive HIGH
+    // predictions at this location within the time window before creating
+    // an alert. (Kept for cases where ALERT_THRESHOLD is raised back above 1.)
     console.log(`🔍 [Alert Checker] No active alert. Looking for previous HIGH predictions in ${location}...`);
-    
-    // Query for previous HIGH risk predictions
+
     const timeWindowStart = new Date(currentTime.getTime() - TIME_WINDOW);
-    
+
     const recentHighRisks = await Prediction.find({
       location: location,
       $and: [
@@ -137,15 +187,14 @@ async function checkForAlerts(prediction) {
       _id: { $ne: prediction._id }, // Exclude current prediction
     })
       .sort({ predictedAt: -1, predictedDate: -1 })
-      .limit(ALERT_THRESHOLD - 1); // Get up to 1 previous HIGH (since we have current)
+      .limit(ALERT_THRESHOLD - 1); // Get up to (threshold - 1) previous HIGHs
 
     console.log(`   Found ${recentHighRisks.length} previous HIGH predictions in time window`);
 
-    // We need exactly 2 HIGH predictions total (including current)
-    // The query above returns previous HIGHs, so we check if we have at least 1 previous HIGH
+    // We need ALERT_THRESHOLD total HIGH predictions (including current)
     if (recentHighRisks.length >= ALERT_THRESHOLD - 1) {
       console.log(`✅ [Alert Creator] THRESHOLD MET: ${ALERT_THRESHOLD} total consecutive HIGHs detected!`);
-      
+
       // Create new alert
       const newAlert = new Alert({
         location: location,
@@ -157,9 +206,6 @@ async function checkForAlerts(prediction) {
             predictionId: pred._id,
             risk: pred.risk || pred.riskLevel,
             confidence: pred.confidence,
-            pH: pred.waterQuality?.pH,
-            Turbidity: pred.waterQuality?.Turbidity,
-            Dissolved_Oxygen: pred.waterQuality?.Dissolved_Oxygen,
             predictedAt: pred.predictedAt || pred.predictedDate,
           })),
           // Add the current prediction
@@ -167,9 +213,6 @@ async function checkForAlerts(prediction) {
             predictionId: prediction._id,
             risk: prediction.risk || prediction.riskLevel,
             confidence: prediction.confidence,
-            pH: prediction.waterQuality?.pH,
-            Turbidity: prediction.waterQuality?.Turbidity,
-            Dissolved_Oxygen: prediction.waterQuality?.Dissolved_Oxygen,
             predictedAt: prediction.predictedAt || prediction.predictedDate,
           },
         ],
@@ -212,12 +255,12 @@ async function checkForAlerts(prediction) {
       };
     }
 
-    console.log(`⏳ [Alert Checker] Only 1 HIGH prediction so far - need ${ALERT_THRESHOLD} consecutive. Waiting for next prediction.`);
+    console.log(`⏳ [Alert Checker] Only ${recentHighRisks.length + 1} HIGH prediction(s) so far - need ${ALERT_THRESHOLD} consecutive. Waiting for next prediction.`);
 
     return {
       alert: null,
       action: 'none',
-      message: `Insufficient consecutive HIGH risks at ${location} (have 1, need ${ALERT_THRESHOLD})`,
+      message: `Insufficient consecutive HIGH risks at ${location} (have ${recentHighRisks.length + 1}, need ${ALERT_THRESHOLD})`,
     };
   } catch (error) {
     console.error('[Alert Checker] Error checking for alerts:', error.message);

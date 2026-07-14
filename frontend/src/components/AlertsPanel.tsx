@@ -277,7 +277,7 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
           <div className="bg-green-50 border-l-4 border-green-500 p-4 mb-4 rounded">
             <p className="text-green-700 font-semibold">✅ All Clear</p>
             <p className="text-green-600 text-sm">
-              No active alerts. Water quality is normal.
+              No active alerts. Community health is normal.
             </p>
           </div>
         )}

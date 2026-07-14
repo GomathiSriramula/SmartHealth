@@ -2,6 +2,7 @@ const express = require('express');
 const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
 const { authMiddleware, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
+const { getManualNotificationRecipients } = require('../utils/notificationRecipients');
 
 const router = express.Router();
 
@@ -97,9 +98,10 @@ router.get('/alerts/:id', authMiddleware, async (req, res) => {
  * Manually send notification for an alert
  * Idempotent - safe to call multiple times
  *
- * Role-based access:
- * - ADMIN: any alert
- * - OPERATOR: only alerts in their own assigned district
+ * Role-based access AND recipients:
+ * - ADMIN:    can notify any alert -> recipients = operator of that alert's district
+ * - OPERATOR: only alerts in their own assigned district -> recipients = all admins
+ * - Regular USERS are forbidden from sending, and are never a recipient.
  */
 router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
   try {
@@ -130,8 +132,22 @@ router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
       });
     }
 
-    // Get recipients from request or use defaults
-    const recipients = req.body.recipients || [process.env.ADMIN_EMAIL || 'admin@smarthealthwatersystem.com'];
+    // 🔒 Recipients are derived from WHO is sending — never from client input:
+    //   - OPERATOR sends -> notify ALL admins
+    //   - ADMIN sends    -> notify ONLY the operator of the affected district
+    // Regular USERS are blocked above and are never notified.
+    const recipients = await getManualNotificationRecipients(req.user, alert.location);
+
+    if (recipients.length === 0) {
+      return res.json({
+        success: true,
+        message:
+          userRole === 'ADMIN'
+            ? 'No operator assigned to this district — nothing to notify'
+            : 'No admins found to notify',
+        alert,
+      });
+    }
 
     // Send notification
     const result = await sendAlertNotification(alert, recipients);

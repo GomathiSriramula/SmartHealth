@@ -298,13 +298,15 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
 
           let district;
           if (req.user.role === "OPERATOR") {
-            district = userDistrict;
             if (rawDistrict && userDistrict && rawDistrict.toLowerCase() !== userDistrict.toLowerCase()) {
-              console.warn(
-                `⚠️  [CSV Bulk Upload] Line ${lineNumber}: CSV district "${rawDistrict}" ` +
-                `was IGNORED and overridden with operator's assigned district "${userDistrict}"`
-              );
+              errors.push({
+                line: lineNumber,
+                error: `Forbidden: As an Operator, you can only submit reports for your assigned district (${userDistrict}). Found CSV district: "${rawDistrict}"`,
+                data: data,
+              });
+              return;
             }
+            district = userDistrict;
           } else {
             district = rawDistrict;
           }

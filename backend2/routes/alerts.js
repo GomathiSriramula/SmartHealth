@@ -9,15 +9,69 @@ const express = require('express');
 const router = express.Router();
 const Alert = require('../models/Alert');
 const { logAudit } = require('../utils/auditLogger');
-const {
-  getAlertModel,
-  createHighRiskAlert,
-  getRecentHighRiskPredictions,
-  acknowledgeAlert,
-  resolveAlert,
-  getActiveAlerts,
-  getAlertStats,
-} = require('../utils/alertManager');
+const { Prediction } = require('../models');
+
+async function getActiveAlerts() {
+  return await Alert.find({ status: 'active' }).sort({ createdAt: -1 });
+}
+
+async function getAlertStats() {
+  const activeCount = await Alert.countDocuments({ status: 'active' });
+  const resolvedCount = await Alert.countDocuments({ status: 'resolved' });
+  return {
+    success: true,
+    byStatus: { active: activeCount, resolved: resolvedCount },
+    activeCount,
+    resolvedCount,
+  };
+}
+
+async function acknowledgeAlert(id, userId) {
+  const alert = await Alert.findById(id);
+  if (!alert) throw new Error('Alert not found');
+  return alert;
+}
+
+async function resolveAlert(id, userId, resolutionNotes = '') {
+  const alert = await Alert.findByIdAndUpdate(
+    id,
+    {
+      status: 'resolved',
+      resolvedAt: new Date(),
+      resolvedReason: resolutionNotes,
+    },
+    { new: true }
+  );
+  if (!alert) throw new Error('Alert not found');
+  return alert;
+}
+
+async function getRecentHighRiskPredictions(location) {
+  const fromDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  return await Prediction.find({
+    location,
+    riskLevel: { $in: ['high', 'HIGH'] },
+    predictedDate: { $gte: fromDate },
+  }).sort({ predictedDate: -1 });
+}
+
+async function createHighRiskAlert(predictions, location) {
+  const newAlert = new Alert({
+    location: location,
+    riskLevel: 'HIGH',
+    reason: `${predictions.length} consecutive HIGH risk predictions at ${location}`,
+    triggeringPredictions: predictions.map((pred) => ({
+      predictionId: pred._id,
+      risk: pred.risk || pred.riskLevel,
+      confidence: pred.confidence,
+      predictedAt: pred.predictedAt || pred.predictedDate,
+    })),
+    status: 'active',
+    notificationSent: false,
+  });
+  await newAlert.save();
+  return newAlert;
+}
 
 /**
  * GET /alerts/active

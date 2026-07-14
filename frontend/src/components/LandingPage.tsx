@@ -78,7 +78,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 <span className="text-blue-600"> Health Monitoring</span>
               </h1>
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                AI-powered community health surveillance for early detection of water-borne disease outbreaks. Collect case reports, analyze disease trends, and generate timely alerts to support public health response.
+                AI-powered community health surveillance for early detection of disease outbreaks. Collect case reports, analyze disease trends, and generate timely alerts to support public health response.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
@@ -129,7 +129,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Comprehensive Health Surveillance</h2>
-            <p className="text-xl text-gray-600">Powered by AI and IoT for real-time community protection</p>
+            <p className="text-xl text-gray-600">Powered by AI for real-time community protection</p>
           </div>
           
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -149,7 +149,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Water Quality Monitoring</h3>
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">Community Case Reporting</h3>
              <p className="text-gray-600">Health workers, clinics, and community volunteers can quickly report suspected disease cases from their local areas. These reports help the system identify possible outbreaks early and support timely public health response.</p> 
             </div>
 

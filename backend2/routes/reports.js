@@ -38,7 +38,15 @@ router.post("/reports/debug", express.json(), (req, res) => {
 
 /**
  * Analyze health report and determine risk level based on symptoms
- * @param {object} report - Health report with symptoms
+ * AND the reporter-selected severity ("Mild"/"Moderate"/"Severe"/"Critical").
+ *
+ * Severity acts as a FLOOR, never a ceiling: if symptom-keyword analysis
+ * already produced a higher risk level, that stands. But "Severe"/"Critical"
+ * severity will escalate risk to HIGH even if the free-text symptom list
+ * doesn't happen to match the hardcoded keyword list below — a reporter's
+ * direct clinical judgement shouldn't be silently ignored.
+ *
+ * @param {object} report - Health report with symptoms + severity
  * @returns {object} - Risk analysis result
  */
 function analyzeReportRisk(report) {
@@ -69,7 +77,7 @@ function analyzeReportRisk(report) {
     mediumRiskSymptoms.some(mrs => s.includes(mrs) || mrs.includes(s))
   ).length;
 
-  // Determine risk level
+  // Determine risk level from symptoms
   let riskLevel = 'low';
   let confidence = 50;
   let reasoning = '';
@@ -96,12 +104,37 @@ function analyzeReportRisk(report) {
     reasoning = `No specific water-borne disease symptoms identified.`;
   }
 
+  // 🔑 Factor in the reporter-selected severity as a floor on risk level.
+  // "Critical" and "Severe" escalate to HIGH even if symptom keywords alone
+  // wouldn't have gotten there. Severity can only push risk UP, never down —
+  // a HIGH from symptom analysis is never downgraded because someone picked
+  // "Mild" by mistake.
+  const rank = { low: 0, medium: 1, high: 2 };
+  const severityFloor = {
+    critical: { riskLevel: 'high', confidence: 90 },
+    severe: { riskLevel: 'high', confidence: 80 },
+  };
+
+  const severityKey = typeof report.severity === 'string' ? report.severity.toLowerCase().trim() : '';
+  const floor = severityFloor[severityKey];
+
+  if (floor && rank[floor.riskLevel] > rank[riskLevel]) {
+    reasoning = `Severity marked as "${report.severity}" by reporter — escalated to ${floor.riskLevel.toUpperCase()} regardless of symptom keyword match. ${reasoning}`;
+    riskLevel = floor.riskLevel;
+    confidence = Math.max(confidence, floor.confidence);
+  } else if (floor) {
+    // Symptom analysis already reached this level or higher — just make sure
+    // confidence reflects the reporter's severity input too.
+    confidence = Math.max(confidence, floor.confidence);
+  }
+
   return {
     riskLevel,
     confidence,
     reasoning,
     highRiskSymptoms: highRiskMatches,
-    mediumRiskSymptoms: mediumRiskMatches
+    mediumRiskSymptoms: mediumRiskMatches,
+    severity: report.severity || null,
   };
 }
 
@@ -149,7 +182,7 @@ async function createPredictionAndNotify(report, analysis) {
     const prediction = await Prediction.create(predictionData);
     console.log(`✅ [Case Report Prediction] Prediction created: ${prediction._id}`);
 
-    // 🚨 NEW: Check for alerts (consecutive HIGH risks at same location)
+    // 🚨 Check for alerts (now triggers on a single HIGH-risk prediction — see alertChecker.js)
     let alertResult = null;
     try {
       alertResult = await checkForAlerts(prediction);
@@ -214,7 +247,7 @@ async function normalizeAndCreateReport(body) {
   return obj;
 }
 
-router.post("/report", authMiddleware, async (req, res) => {
+router.post("/report", authMiddleware, locationGuard(), async (req, res) => {
   try {
     const obj = await normalizeAndCreateReport(req.body);
     await publish("case_reports", { id: obj._id });
