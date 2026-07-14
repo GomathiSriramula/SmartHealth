@@ -68,14 +68,14 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) 
         setSelectedFile(null);
         return;
       }
-      
+
       // Validate file size (10MB limit)
       if (file.size > 10 * 1024 * 1024) {
         setError('File size must be less than 10MB');
         setSelectedFile(null);
         return;
       }
-      
+
       setSelectedFile(file);
       setError('');
       setResult(null);
@@ -120,7 +120,7 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) 
 
       setResult(data);
       setSelectedFile(null);
-      
+
       // Reset file input
       const fileInput = document.getElementById('csv-file-input') as HTMLInputElement;
       if (fileInput) {
@@ -149,11 +149,11 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) 
   };
 
   const handleDownloadSample = () => {
-    const csvContent = `reporter_type,reporter_id,patient_age,sex,lat,lng,symptoms,reported_at
-Clinic,c-2001,45,M,17.4530,78.3950,Fever|Headache,2025-11-01T10:30Z
-ASHA,r-2002,32,F,17.4520,78.3960,Diarrhea,2025-11-02T14:15Z
-Volunteer,v-2003,28,M,17.4510,78.3940,Vomiting|Nausea,2025-11-03T08:45Z
-Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
+    const csvContent = `reporter_type,patient_age,sex,district,village_area,severity,symptoms,reported_at,remarks
+Clinic Staff,45,Male,Warangal,Ramapur,Moderate,Fever|Headache,2026-06-01T10:30Z,Patient advised to rest and hydrate
+ASHA Worker,32,Female,Warangal,Ramapur,Mild,Diarrhea,2026-06-02T14:15Z,
+Community Volunteer,28,Male,Warangal,Kothapet,Severe,Vomiting|Nausea,2026-06-03T08:45Z,Referred to local clinic
+Clinic Staff,55,Female,Warangal,Kothapet,Moderate,Abdominal Pain|Fatigue,2026-06-04T16:20Z,`;
     const filename = 'sample_case_reports.csv';
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -219,11 +219,10 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
           type="button"
           onClick={handleUpload}
           disabled={!selectedFile || uploading}
-          className={`w-full py-3 px-4 rounded-md font-semibold text-white transition-colors ${
-            !selectedFile || uploading
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700'
-          }`}
+          className={`w-full py-3 px-4 rounded-md font-semibold text-white transition-colors ${!selectedFile || uploading
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'bg-blue-600 hover:bg-blue-700'
+            }`}
         >
           {uploading ? (
             <span className="flex items-center justify-center">
@@ -263,7 +262,7 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
               message={result.message}
               onClose={() => setResult(null)}
             />
-            
+
             <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
               <h3 className="font-semibold text-gray-800 mb-3">📈 Upload Summary</h3>
               <div className="grid grid-cols-3 gap-4 mb-4">
@@ -312,12 +311,10 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
         <div className="mt-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
           <h3 className="font-semibold text-yellow-900 mb-2">📝 Instructions</h3>
           <ul className="text-sm text-yellow-800 space-y-1">
-            <li>• File must be in CSV format (.csv)</li>
-            <li>• Maximum file size: 10MB</li>
-            <li>• First row must contain column headers</li>
-            <li>• Download sample file to see required format</li>
+
             <li>• Use pipe (|) to separate multiple symptoms</li>
-            <li>• Dates must be in ISO 8601 format (e.g., 2025-11-01T10:30Z)</li>
+            <li>• Dates must be in ISO 8601 format (e.g., 2026-06-01T10:30Z)</li>
+            <li>• If District is left blank, it's auto-filled from your operator account</li>
           </ul>
         </div>
 
@@ -325,14 +322,14 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
         <div className="mt-6">
           <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200">
             <h4 className="font-bold text-blue-900 mb-4 text-lg">📋 Case Reports CSV Format</h4>
-            
+
             {/* Required Fields */}
             <div className="mb-4">
               <h5 className="font-semibold text-blue-800 mb-2">Required Fields:</h5>
               <div className="bg-white p-3 rounded border border-blue-200 space-y-2 text-sm">
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-mono text-blue-700">reporter_type</span>
-                  <span className="col-span-2 text-gray-700">Clinic, ASHA, Volunteer, HealthOfficial</span>
+                  <span className="col-span-2 text-gray-700">ASHA Worker, Community Volunteer, Health Official, Clinic Staff</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-mono text-blue-700">patient_age</span>
@@ -340,11 +337,19 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-mono text-blue-700">sex</span>
-                  <span className="col-span-2 text-gray-700">M, F, or O</span>
+                  <span className="col-span-2 text-gray-700">Male, Female, or Other (M, F, O also accepted)</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <span className="font-mono text-blue-700">lat, lng</span>
-                  <span className="col-span-2 text-gray-700">Coordinates (e.g., 17.4530, 78.3950)</span>
+                  <span className="font-mono text-blue-700">district</span>
+                  <span className="col-span-2 text-gray-700">District name (e.g., Warangal) - auto-filled from your account if left blank</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">village_area</span>
+                  <span className="col-span-2 text-gray-700">Village or area name (e.g., Ramapur)</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <span className="font-mono text-blue-700">severity</span>
+                  <span className="col-span-2 text-gray-700">Mild, Moderate, Severe, or Critical</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-mono text-blue-700">symptoms</span>
@@ -352,7 +357,7 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-mono text-blue-700">reported_at</span>
-                  <span className="col-span-2 text-gray-700">ISO 8601 format (2026-02-10T10:30Z)</span>
+                  <span className="col-span-2 text-gray-700">ISO 8601 format (2026-06-10T10:30Z)</span>
                 </div>
               </div>
             </div>
@@ -362,8 +367,8 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
               <h5 className="font-semibold text-blue-800 mb-2">Optional Fields:</h5>
               <div className="bg-white p-3 rounded border border-blue-200 space-y-2 text-sm">
                 <div className="grid grid-cols-3 gap-2">
-                  <span className="font-mono text-blue-700">location</span>
-                  <span className="col-span-2 text-gray-700">Village/area name (e.g., ramapur) - Enables alert matching</span>
+                  <span className="font-mono text-blue-700">remarks</span>
+                  <span className="col-span-2 text-gray-700">Additional notes or observations</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <span className="font-mono text-blue-700">reporter_id</span>
@@ -376,12 +381,13 @@ Clinic,c-2004,55,F,17.4540,78.3970,Stomach Pain,2025-11-04T16:20Z`;
             <div>
               <h5 className="font-semibold text-blue-800 mb-2">Example CSV:</h5>
               <pre className="text-xs bg-white p-3 rounded border border-blue-200 overflow-x-auto text-gray-800 font-mono">
-reporter_type,patient_age,sex,lat,lng,symptoms,reported_at,location
-Clinic,45,M,17.4530,78.3950,Fever|Headache|Diarrhea,2026-02-10T10:30Z,ramapur
-ASHA,32,F,17.4520,78.3960,Diarrhea|Vomiting|Dehydration,2026-02-10T14:15Z,ramapur
-Volunteer,28,M,17.4510,78.3940,Nausea|Abdominal Pain,2026-02-10T08:45Z,ramapur
+                reporter_type,patient_age,sex,district,village_area,severity,symptoms,reported_at,remarks
+                Clinic Staff,45,Male,Warangal,Ramapur,Moderate,Fever|Headache|Diarrhea,2026-06-10T10:30Z,Patient stable
+                ASHA Worker,32,Female,Warangal,Ramapur,Severe,Diarrhea|Vomiting|Dehydration,2026-06-10T14:15Z,
+                Community Volunteer,28,Male,Warangal,Kothapet,Mild,Nausea|Abdominal Pain,2026-06-10T08:45Z,
               </pre>
             </div>
+
 
             {/* Common Symptoms */}
             <div className="mt-4 p-3 bg-blue-100 rounded border border-blue-300">

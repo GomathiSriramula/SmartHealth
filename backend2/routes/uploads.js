@@ -5,7 +5,7 @@ const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
 const { CaseReport, Prediction } = require("../models");
-const { authMiddleware } = require("../utils/auth");
+const { authMiddleware, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { notifyAlertCreation } = require("../utils/mailer");
@@ -114,23 +114,25 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     console.log(`🚨 [CSV Bulk Upload] ${highRiskCases.length} HIGH RISK cases detected out of ${reports.length} total! - Triggering prediction...`);
 
     // Get location info from high-risk cases
-    // Prioritize location field (village name) over coordinates for proper alert matching
+    // Prioritize location (district) field, then fall back to village/area name
     const locationField = highRiskCases.find(c => c.report.location)?.report.location;
     let locationStr;
 
     if (locationField) {
-      // Use village/location name if available (critical for alert matching)
+      // Use district/location name if available (critical for alert matching)
       locationStr = locationField;
       console.log(`📍 [CSV Bulk Upload] Using location field: ${locationStr}`);
     } else {
-      // Fallback to coordinates if no location field
-      const locations = highRiskCases
-        .map(c => c.report.lat && c.report.lng ? `(${c.report.lat.toFixed(4)}, ${c.report.lng.toFixed(4)})` : null)
+      // Fallback to village/area names if no district/location field
+      const villages = highRiskCases
+        .map(c => c.report.village_area)
         .filter(Boolean);
-      const uniqueLocations = [...new Set(locations)];
-      locationStr = uniqueLocations.slice(0, 3).join(', ') +
-                   (uniqueLocations.length > 3 ? ` and ${uniqueLocations.length - 3} more` : 'Multiple locations');
-      console.log(`📍 [CSV Bulk Upload] Using coordinates: ${locationStr}`);
+      const uniqueVillages = [...new Set(villages)];
+      locationStr = uniqueVillages.length > 0
+        ? uniqueVillages.slice(0, 3).join(', ') +
+        (uniqueVillages.length > 3 ? ` and ${uniqueVillages.length - 3} more` : '')
+        : 'Multiple locations';
+      console.log(`📍 [CSV Bulk Upload] Using village/area field: ${locationStr}`);
     }
 
     // Calculate average confidence
@@ -148,8 +150,8 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
       riskLevel: "high",
       predictedDate: new Date(),
       details: `URGENT ALERT: Bulk upload detected ${highRiskCases.length} HIGH RISK cases out of ${reports.length} total reports. ` +
-               `Critical symptoms reported: ${allSymptoms.slice(0, 5).join(', ')}${allSymptoms.length > 5 ? '...' : ''}. ` +
-               `This pattern suggests potential outbreak in progress. Immediate investigation required.`,
+        `Critical symptoms reported: ${allSymptoms.slice(0, 5).join(', ')}${allSymptoms.length > 5 ? '...' : ''}. ` +
+        `This pattern suggests potential outbreak in progress. Immediate investigation required.`,
       recommendations: [
         `Investigate all ${highRiskCases.length} high-risk cases immediately`,
         "Test water sources in affected areas",
@@ -161,8 +163,6 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
       ],
       confidence: Math.round(avgConfidence),
       modelVersion: "csv-bulk-analyzer-v1.0",
-      lat: highRiskCases[0]?.report.lat,
-      lng: highRiskCases[0]?.report.lng,
       metadata: {
         uploadedBy: authenticatedUsername,
         totalReports: reports.length,
@@ -234,15 +234,24 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
  * POST /upload/case-reports
  * Upload CSV file containing case reports
  *
- * Expected CSV columns:
- * reporter_type, reporter_id, patient_age, sex, lat, lng, symptoms, reported_at
- * Optional: location (required for ADMIN users - must match their assigned village)
+ * Expected CSV columns (mirrors the Submit Report form):
+ * reporter_type, patient_age, sex, district, village_area, severity, symptoms, reported_at
+ * Optional: remarks, reporter_id (ignored), location (alias for district)
  *
  * Notes:
  * - reporter_id will be overridden with the authenticated user's username
- * - For ADMIN users: Every row's location must match the admin's assigned village
- *   If any row has a different location, the entire upload is rejected
- * - USER role has no location restrictions
+ * - district for OPERATOR accounts is ALWAYS forced to that operator's assigned
+ *   district — any district/location value in the CSV row is IGNORED for
+ *   OPERATOR uploads. This mirrors the reporter_id override above.
+ *   WHY: Dashboard/Alerts views scope an operator to their own district. If a
+ *   CSV row's district text doesn't match the operator's assigned district
+ *   exactly (typo, different casing, stale sample file, wrong district
+ *   entirely), the row still saves to the DB successfully but then silently
+ *   fails to show up in that operator's Dashboard/Reports/Alerts views. Forcing
+ *   the district server-side removes that entire class of "upload succeeded
+ *   but nothing shows up" bug.
+ * - ADMIN/USER accounts have no assigned district, so district must be
+ *   provided in the CSV for those roles and is used as-is.
  * - locationGuard is NOT used here because location validation happens during CSV parsing
  */
 router.post("/upload/case-reports", authMiddleware, upload.single("file"), async (req, res) => {
@@ -264,9 +273,12 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
       .on("data", (data) => {
         lineNumber++;
         try {
-          // Validate required fields (reporter_id is optional as we override it)
-          if (!data.reporter_type || !data.patient_age ||
-              !data.sex || !data.lat || !data.lng || !data.symptoms || !data.reported_at) {
+          // Validate required fields (reporter_id is optional as we override it).
+          // District is checked separately below so blank-district failures get a
+          // clear, actionable message instead of a generic "Missing required fields".
+          if (!data.reporter_type || !data.patient_age || !data.sex ||
+            !data.village_area || !data.severity ||
+            !data.symptoms || !data.reported_at) {
             errors.push({
               line: lineNumber,
               error: "Missing required fields",
@@ -274,6 +286,59 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             });
             return;
           }
+
+          // 🔑 FIX: district resolution
+          // For OPERATOR accounts: ALWAYS use the operator's own assigned district.
+          // Any district/location value present in the CSV row is ignored (and logged)
+          // so an operator's uploads can never end up scoped to a different district
+          // than the one their Dashboard/Reports/Alerts views filter on.
+          // For ADMIN/USER: no assigned district exists, so the CSV value is authoritative.
+          const rawDistrict = (data.district || data.location || "").trim();
+          const userDistrict = getUserDistrict(req.user);
+
+          let district;
+          if (req.user.role === "OPERATOR") {
+            district = userDistrict;
+            if (rawDistrict && userDistrict && rawDistrict.toLowerCase() !== userDistrict.toLowerCase()) {
+              console.warn(
+                `⚠️  [CSV Bulk Upload] Line ${lineNumber}: CSV district "${rawDistrict}" ` +
+                `was IGNORED and overridden with operator's assigned district "${userDistrict}"`
+              );
+            }
+          } else {
+            district = rawDistrict;
+          }
+
+          if (!district) {
+            errors.push({
+              line: lineNumber,
+              error:
+                req.user.role === "OPERATOR"
+                  ? "Missing district - your operator account has no assigned district to auto-fill from. Contact an admin to assign one."
+                  : "Missing district - district must be provided in the CSV for ADMIN/USER accounts (only OPERATOR accounts auto-fill a district).",
+              data: data,
+            });
+            return;
+          }
+
+          // Normalize sex (accepts Male/Female/Other or M/F/O)
+          const sexRaw = data.sex.trim().toUpperCase();
+          let sex;
+          if (["MALE", "M"].includes(sexRaw)) sex = "M";
+          else if (["FEMALE", "F"].includes(sexRaw)) sex = "F";
+          else if (["OTHER", "O"].includes(sexRaw)) sex = "O";
+          else sex = sexRaw;
+
+          // Normalize severity to match the Submit Report form's casing
+          const severityRaw = data.severity.trim();
+          const severityMap = {
+            mild: "Mild",
+            moderate: "Moderate",
+            severe: "Severe",
+            critical: "Critical",
+          };
+          const severity =
+            severityMap[severityRaw.toLowerCase()] || severityRaw;
 
           // Parse symptoms (can be pipe-separated)
           const symptoms = data.symptoms.split("|").map((s) => s.trim());
@@ -283,16 +348,17 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             reporter_type: data.reporter_type.trim(),
             reporter_id: authenticatedUsername, // 🔑 Always use authenticated user's username
             patient_age: parseInt(data.patient_age),
-            sex: data.sex.trim().toUpperCase(),
-            lat: parseFloat(data.lat),
-            lng: parseFloat(data.lng),
+            sex: sex,
+            location: district, // District, matching the Submit Report form
+            village_area: data.village_area.trim(),
+            severity: severity,
             symptoms: symptoms,
             reported_at: new Date(data.reported_at),
           };
 
-          // Add location field if present in CSV (important for alert matching)
-          if (data.location && data.location.trim()) {
-            caseReport.location = data.location.trim();
+          // Additional Remarks (optional)
+          if (data.remarks && data.remarks.trim()) {
+            caseReport.remarks = data.remarks.trim();
           }
 
           // Validate data types
@@ -305,19 +371,19 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             return;
           }
 
-          if (isNaN(caseReport.lat) || isNaN(caseReport.lng)) {
+          if (!["M", "F", "O"].includes(caseReport.sex)) {
             errors.push({
               line: lineNumber,
-              error: "Invalid lat/lng coordinates",
+              error: "Invalid sex (must be Male/Female/Other or M/F/O)",
               data: data,
             });
             return;
           }
 
-          if (!["M", "F", "O"].includes(caseReport.sex)) {
+          if (!["Mild", "Moderate", "Severe", "Critical"].includes(caseReport.severity)) {
             errors.push({
               line: lineNumber,
-              error: "Invalid sex (must be M, F, or O)",
+              error: "Invalid severity (must be Mild, Moderate, Severe, or Critical)",
               data: data,
             });
             return;
@@ -347,8 +413,38 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
           let inserted = 0;
           let insertedRecords = [];
           if (results.length > 0) {
-            insertedRecords = await CaseReport.insertMany(results, { ordered: false });
-            inserted = insertedRecords.length;
+            try {
+              insertedRecords = await CaseReport.insertMany(results, { ordered: false });
+              inserted = insertedRecords.length;
+            } catch (bulkError) {
+              // 🔑 FIX: with ordered:false, Mongo/Mongoose still inserts every row that
+              // passed validation even if some rows failed (e.g. duplicate key). The
+              // old code let this exception bubble straight to the outer catch, which
+              // reported the ENTIRE batch as failed even when most rows actually saved.
+              // Recover the rows that did succeed instead of discarding that info.
+              const partiallyInserted =
+                bulkError.insertedDocs || bulkError.result?.insertedIds || [];
+
+              if (partiallyInserted && Object.keys(partiallyInserted).length > 0) {
+                insertedRecords = Array.isArray(partiallyInserted)
+                  ? partiallyInserted
+                  : Object.values(partiallyInserted);
+                inserted = insertedRecords.length;
+                const failedCount = results.length - inserted;
+                errors.push({
+                  line: null,
+                  error: `${failedCount} row(s) passed validation but failed to insert into the database: ${bulkError.message}`,
+                  data: {},
+                });
+                console.warn(
+                  `⚠️  [CSV Bulk Upload] Partial DB insert: ${inserted}/${results.length} rows saved. ` +
+                  `Reason: ${bulkError.message}`
+                );
+              } else {
+                // Nothing was inserted at all — this is a genuine total failure.
+                throw bulkError;
+              }
+            }
           }
 
           // Log audit event for UPLOAD_CSV action
@@ -364,8 +460,14 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             },
           });
 
-          // 🚨 NEW: Analyze uploaded reports for HIGH RISK cases
-          const analysisResult = await analyzeCSVReportsAndNotify(results, authenticatedUsername);
+          // 🚨 Analyze uploaded reports for HIGH RISK cases
+          // Use insertedRecords (what's actually in the DB) rather than `results`
+          // (what merely passed pre-insert validation) so the risk analysis and
+          // any resulting alert are based on rows that genuinely made it in.
+          const analysisResult = await analyzeCSVReportsAndNotify(
+            insertedRecords.length > 0 ? insertedRecords : results,
+            authenticatedUsername
+          );
 
           // Delete the uploaded file after processing
           fs.unlinkSync(filePath);
