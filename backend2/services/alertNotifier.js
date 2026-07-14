@@ -139,7 +139,7 @@ async function sendAlertNotification(alert, recipients = null) {
             </div>
 
             <div class="alert-detail" style="margin-top: 20px; font-size: 14px; color: #999;">
-              <p>This is an automated alert from SmartHealth Water Monitoring System.</p>
+              <p>This is an automated alert from SmartHealth Monitoring System.</p>
               <p>Please review the dashboard for detailed information.</p>
             </div>
           </div>
@@ -154,7 +154,7 @@ Location: ${emailContent.location}
 Risk Level: ${emailContent.riskLevel}
 Detected At: ${timestamp}
 
-This is an automated alert from SmartHealth Water Monitoring System.
+This is an automated alert from SmartHealth Monitoring System.
 Please review the dashboard for detailed information.
     `;
 
