@@ -5,7 +5,7 @@ const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
 const { CaseReport, Prediction } = require("../models");
-const { authMiddleware, getUserDistrict } = require("../utils/auth");
+const { authMiddleware, requireRole, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { notifyAlertCreation } = require("../utils/mailer");
@@ -229,7 +229,7 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
  *   provided in the CSV for those roles and is used as-is.
  * - locationGuard is NOT used here because location validation happens during CSV parsing
  */
-router.post("/upload/case-reports", authMiddleware, upload.single("file"), async (req, res) => {
+router.post("/upload/case-reports", authMiddleware, requireRole('ADMIN', 'OPERATOR'), upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });

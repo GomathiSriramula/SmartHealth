@@ -5,7 +5,7 @@ const publish = require("../utils/publisher");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { checkForAlerts } = require("../services/alertChecker");
 
-const { authMiddleware, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
+const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 
 // Debug endpoint
@@ -247,7 +247,7 @@ async function normalizeAndCreateReport(body) {
   return obj;
 }
 
-router.post("/report", authMiddleware, locationGuard(), async (req, res) => {
+router.post("/report", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locationGuard(), async (req, res) => {
   try {
     const obj = await normalizeAndCreateReport(req.body);
     await publish("case_reports", { id: obj._id });
@@ -285,7 +285,7 @@ router.post("/report", authMiddleware, locationGuard(), async (req, res) => {
   }
 });
 
-router.post("/reports", authMiddleware, locationGuard(), async (req, res) => {
+router.post("/reports", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locationGuard(), async (req, res) => {
   try {
     const reportBody = { ...req.body };
     if (!reportBody.location) {
