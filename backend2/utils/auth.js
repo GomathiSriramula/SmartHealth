@@ -4,9 +4,23 @@ const { User } = require("../models");
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-const DEFAULT_ADMIN_EMAIL = "admin@health.in";
-const DEFAULT_ADMIN_PASSWORD = "Admin@123";
-const DEFAULT_ADMIN_USERNAME = "telangana-admin";
+
+// List of default admins to ensure exist on startup.
+// Add or remove entries here to control how many default admins you have.
+const DEFAULT_ADMINS = [
+  {
+    email: "admin@health.in",
+    password: "Admin@123",
+    username: "telangana-admin",
+    adminLocation: { state: "Telangana" }
+  },
+  {
+    email: "sriramulagomathi987@gmail.com",
+    password: "Gomathi@123",
+    username: "telangana-admin-2",
+    adminLocation: { state: "Telangana" }
+  }
+];
 
 function normalizeLocation(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -81,17 +95,24 @@ async function createUser(username, password, email, options = {}) {
 }
 
 async function ensureDefaultAdmin() {
-  const existingAdmin = await User.findOne({ email: DEFAULT_ADMIN_EMAIL });
-  if (existingAdmin) {
-    return existingAdmin;
+  const createdAdmins = [];
+
+  for (const admin of DEFAULT_ADMINS) {
+    const existingAdmin = await User.findOne({ email: admin.email });
+    if (existingAdmin) {
+      createdAdmins.push(existingAdmin);
+      continue;
+    }
+
+    const newAdmin = await createUser(admin.username, admin.password, admin.email, {
+      role: 'ADMIN',
+      adminLocation: admin.adminLocation
+    });
+    console.log(`✅ Default admin created: ${admin.email}`);
+    createdAdmins.push(newAdmin);
   }
 
-  return createUser(DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_EMAIL, {
-    role: 'ADMIN',
-    adminLocation: {
-      state: 'Telangana'
-    }
-  });
+  return createdAdmins;
 }
 
 async function verifyPassword(password, hash) {

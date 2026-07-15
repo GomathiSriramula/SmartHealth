@@ -623,6 +623,7 @@ Alert Status: ${alert.status}
 module.exports = {
   sendEmail,
   sendBulkEmail,
+  createTransporter,
   generatePredictionEmailHTML,
   generatePredictionEmailText,
   notifyUsersOfPrediction,

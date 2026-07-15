@@ -93,141 +93,116 @@ function analyzeReportRisk(report) {
 /**
  * Analyze CSV upload results and create prediction if HIGH RISK cases found
  */
+/**
+ * Analyze EVERY CSV row individually.
+ * - Creates ONE Prediction per row (not one aggregated prediction for the batch)
+ * - Runs checkForAlerts() for every row whose prediction is HIGH risk
+ * - Sends alert + email notifications per HIGH row
+ */
 async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
-  try {
-    if (!reports || reports.length === 0) return null;
+  if (!reports || reports.length === 0) return null;
 
-    // Analyze all reports
-    const analyses = reports.map(report => ({
-      report,
-      analysis: analyzeReportRisk(report)
-    }));
+  const perRowResults = [];
+  let highRiskCount = 0;
+  let alertsCreated = 0;
+  let notificationsSent = 0;
 
-    // Count high-risk cases
-    const highRiskCases = analyses.filter(a => a.analysis.riskLevel === 'high');
+  for (const report of reports) {
+    const analysis = analyzeReportRisk(report);
 
-    if (highRiskCases.length === 0) {
-      console.log(`📊 [CSV Bulk Upload] No HIGH RISK cases found in ${reports.length} reports - no prediction triggered`);
-      return null;
-    }
-
-    console.log(`🚨 [CSV Bulk Upload] ${highRiskCases.length} HIGH RISK cases detected out of ${reports.length} total! - Triggering prediction...`);
-
-    // Get location info from high-risk cases
-    // Prioritize location (district) field, then fall back to village/area name
-    const locationField = highRiskCases.find(c => c.report.location)?.report.location;
-    let locationStr;
-
-    if (locationField) {
-      // Use district/location name if available (critical for alert matching)
-      locationStr = locationField;
-      console.log(`📍 [CSV Bulk Upload] Using location field: ${locationStr}`);
-    } else {
-      // Fallback to village/area names if no district/location field
-      const villages = highRiskCases
-        .map(c => c.report.village_area)
-        .filter(Boolean);
-      const uniqueVillages = [...new Set(villages)];
-      locationStr = uniqueVillages.length > 0
-        ? uniqueVillages.slice(0, 3).join(', ') +
-        (uniqueVillages.length > 3 ? ` and ${uniqueVillages.length - 3} more` : '')
-        : 'Multiple locations';
-      console.log(`📍 [CSV Bulk Upload] Using village/area field: ${locationStr}`);
-    }
-
-    // Calculate average confidence
-    const avgConfidence = highRiskCases.reduce((sum, c) => sum + c.analysis.confidence, 0) / highRiskCases.length;
-
-    // Collect all symptoms from high-risk cases
-    const allSymptoms = highRiskCases
-      .flatMap(c => c.report.symptoms)
-      .filter((v, i, a) => a.indexOf(v) === i); // unique
-
-    // Create prediction
     const predictionData = {
-      predictionType: "Multiple Water-Borne Disease Cases Detected",
-      location: locationStr || "Multiple locations",
-      riskLevel: "high",
+      predictionType: "Water-Borne Disease Case Prediction",
+      location: report.location || report.village_area || "Unknown location",
+      riskLevel: analysis.riskLevel,
       predictedDate: new Date(),
-      details: `URGENT ALERT: Bulk upload detected ${highRiskCases.length} HIGH RISK cases out of ${reports.length} total reports. ` +
-        `Critical symptoms reported: ${allSymptoms.slice(0, 5).join(', ')}${allSymptoms.length > 5 ? '...' : ''}. ` +
-        `This pattern suggests potential outbreak in progress. Immediate investigation required.`,
-      recommendations: [
-        `Investigate all ${highRiskCases.length} high-risk cases immediately`,
-        "Test water sources in affected areas",
-        "Issue water boil advisory for affected regions",
-        "Set up medical screening stations",
-        "Distribute bottled water and water purification supplies",
-        "Monitor for additional cases in the next 24-48 hours",
-        "Contact epidemiology team for outbreak assessment"
-      ],
-      confidence: Math.round(avgConfidence),
+      details:
+        `Case report for ${report.village_area || report.location || "unknown area"}. ` +
+        `Risk level: ${analysis.riskLevel.toUpperCase()}. ` +
+        `Symptoms: ${(report.symptoms || []).join(", ")}.`,
+      recommendations:
+        analysis.riskLevel === "high"
+          ? [
+            "Investigate this case immediately",
+            "Test water sources in the affected area",
+            "Issue water boil advisory if pattern confirmed",
+            "Monitor for additional cases in the next 24-48 hours",
+          ]
+          : ["Continue routine monitoring"],
+      confidence: analysis.confidence,
       modelVersion: "csv-bulk-analyzer-v1.0",
       metadata: {
         uploadedBy: authenticatedUsername,
-        totalReports: reports.length,
-        highRiskCount: highRiskCases.length,
-        uploadTimestamp: new Date()
-      }
+        source: "csv_bulk_upload",
+        caseReportId: report._id || null,
+        uploadTimestamp: new Date(),
+      },
     };
 
-    // Save prediction
+    // 🔑 Create ONE Prediction per row
     const prediction = await Prediction.create(predictionData);
-    console.log(`✅ [CSV Bulk Upload] Prediction created: ${prediction._id}`);
+    console.log(
+      `✅ [CSV Row] Prediction created (${analysis.riskLevel.toUpperCase()}): ${prediction._id}`
+    );
 
-    // 🚨 Check for alerts from this HIGH RISK prediction
     let alertResult = null;
-    try {
-      // Convert prediction format for alert checker (needs 'risk' not 'riskLevel')
-      const predictionForAlert = {
-        ...prediction.toObject(),
-        risk: prediction.riskLevel, // Convert riskLevel to risk for alert checker
-        predictedAt: prediction.predictedDate, // Convert predictedDate to predictedAt
-      };
+    let notificationResult = null;
 
-      console.log(`📡 Calling checkForAlerts for CSV upload prediction...`);
-      alertResult = await checkForAlerts(predictionForAlert);
-      console.log(`📡 checkForAlerts returned:`, alertResult);
+    // 🔑 Run checkForAlerts() for every HIGH prediction
+    if (analysis.riskLevel === "high") {
+      highRiskCount++;
 
-      if (alertResult && alertResult.action === 'created' && alertResult.alert) {
-        console.log(`🚨 [CSV Alert] CREATED: ${alertResult.message}`);
+      try {
+        const predictionForAlert = {
+          ...prediction.toObject(),
+          risk: prediction.riskLevel,
+          predictedAt: prediction.predictedDate,
+        };
 
-        // Send alert notification
-        try {
-          const notifyResult = await notifyAlertCreation(alertResult.alert);
-          console.log(`📧 [CSV Alert] Notification sent: ${notifyResult.message}`);
-        } catch (notifyError) {
-          console.error(`⚠️  [CSV Alert] Notification failed (non-blocking): ${notifyError.message}`);
+        console.log(`📡 Calling checkForAlerts for row prediction ${prediction._id}...`);
+        alertResult = await checkForAlerts(predictionForAlert);
+        console.log(`📡 checkForAlerts returned:`, alertResult);
+
+        if (alertResult && alertResult.action === "created" && alertResult.alert) {
+          alertsCreated++;
+          console.log(`🚨 [CSV Alert] CREATED: ${alertResult.message}`);
+          try {
+            const notifyResult = await notifyAlertCreation(alertResult.alert);
+            console.log(`📧 [CSV Alert] Notification sent: ${notifyResult.message}`);
+          } catch (notifyError) {
+            console.error(`⚠️  [CSV Alert] Notification failed (non-blocking): ${notifyError.message}`);
+          }
+        } else if (alertResult && alertResult.action === "resolved" && alertResult.alert) {
+          console.log(`✅ [CSV Alert] RESOLVED: ${alertResult.message}`);
+        } else if (alertResult) {
+          console.log(`ℹ️  [CSV Alert] ${alertResult.message}`);
         }
-      } else if (alertResult && alertResult.action === 'resolved' && alertResult.alert) {
-        console.log(`✅ [CSV Alert] RESOLVED: ${alertResult.message}`);
-      } else if (alertResult) {
-        console.log(`ℹ️  [CSV Alert] ${alertResult.message}`);
+      } catch (alertError) {
+        console.error(`⚠️  [CSV Alert] Check failed (non-blocking): ${alertError.message}`);
+        console.error(alertError);
       }
-    } catch (alertError) {
-      console.error(`⚠️  [CSV Alert] Check failed (non-blocking): ${alertError.message}`);
-      console.error(alertError);
+
+      // Email notification per HIGH-risk row
+      try {
+        notificationResult = await notifyUsersOfPrediction(prediction);
+        if (notificationResult.success && notificationResult.count > 0) {
+          notificationsSent += notificationResult.count;
+          console.log(`✅ [CSV Row] Email alerts sent to ${notificationResult.count} users`);
+        }
+      } catch (notifyErr) {
+        console.error(`⚠️  [CSV Row] Email notification failed (non-blocking): ${notifyErr.message}`);
+      }
     }
 
-    // Send email notification
-    console.log(`📧 [CSV Bulk Upload] Sending email alerts to users...`);
-    const notificationResult = await notifyUsersOfPrediction(prediction);
-
-    if (notificationResult.success && notificationResult.count > 0) {
-      console.log(`✅ [CSV Bulk Upload] Email alerts sent to ${notificationResult.count} users`);
-    }
-
-    return {
-      prediction,
-      notification: notificationResult,
-      highRiskCount: highRiskCases.length,
-      alert: alertResult
-    };
-
-  } catch (error) {
-    console.error(`❌ Error analyzing CSV reports:`, error);
-    return null;
+    perRowResults.push({ report, analysis, prediction, alertResult, notificationResult });
   }
+
+  return {
+    perRowResults,
+    totalReports: reports.length,
+    highRiskCount,
+    alertsCreated,
+    notificationsSent,
+  };
 }
 
 /**
@@ -466,6 +441,8 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
           // Use insertedRecords (what's actually in the DB) rather than `results`
           // (what merely passed pre-insert validation) so the risk analysis and
           // any resulting alert are based on rows that genuinely made it in.
+          // 🚨 Analyze every uploaded report individually — creates one Prediction
+          // per row and runs checkForAlerts() for every HIGH-risk row.
           const analysisResult = await analyzeCSVReportsAndNotify(
             insertedRecords.length > 0 ? insertedRecords : results,
             authenticatedUsername
@@ -484,18 +461,26 @@ router.post("/upload/case-reports", authMiddleware, upload.single("file"), async
             errors: errors.length > 0 ? errors.slice(0, 10) : [], // Return first 10 errors
           };
 
-          // Include notification info if HIGH RISK was detected
+          // Include per-row prediction/alert info if any predictions were created
           if (analysisResult) {
             response.riskAlert = {
+              totalPredictions: analysisResult.perRowResults.length,
               highRiskCases: analysisResult.highRiskCount,
-              emailsSent: analysisResult.notification?.count || 0,
-              predictionId: analysisResult.prediction?._id,
-              message: `🚨 ${analysisResult.highRiskCount} HIGH RISK cases detected - Email alerts sent to ${analysisResult.notification?.count || 0} users`,
-              alert: analysisResult.alert ? {
-                action: analysisResult.alert.action,
-                message: analysisResult.alert.message,
-                alertId: analysisResult.alert.alert ? analysisResult.alert.alert._id : null,
-              } : null
+              alertsCreated: analysisResult.alertsCreated,
+              emailsSent: analysisResult.notificationsSent,
+              message: `🚨 ${analysisResult.highRiskCount} HIGH RISK cases detected out of ${analysisResult.totalReports} rows - ${analysisResult.alertsCreated} alert(s) created, emails sent for ${analysisResult.notificationsSent} notifications`,
+              predictions: analysisResult.perRowResults.map((r) => ({
+                predictionId: r.prediction._id,
+                riskLevel: r.analysis.riskLevel,
+                location: r.prediction.location,
+                alert: r.alertResult
+                  ? {
+                    action: r.alertResult.action,
+                    message: r.alertResult.message,
+                    alertId: r.alertResult.alert ? r.alertResult.alert._id : null,
+                  }
+                  : null,
+              })),
             };
           }
 

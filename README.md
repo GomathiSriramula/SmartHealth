@@ -1,379 +1,213 @@
-# SmartHealth - Water Quality Monitoring System
+# SmartHealth - Water-Borne Disease Surveillance & Outbreak Prediction System
 
-**Production Ready v1.0** | ML-Powered | Real-Time Alerts | Full Stack
+**Production Ready v1.0** | ML-Powered | Real-Time Email Alerts | Role-Based Geofencing
+
+---
 
 ## 📋 Overview
 
-SmartHealth is a complete water quality monitoring and prediction system built with:
-- **ML Model:** RandomForest water quality classifier
-- **Backend:** Node.js + Express + MongoDB
-- **Frontend:** React + TypeScript
-- **ML Service:** Flask REST API
-- **Monitoring:** Real-time alert system with escalation logic
+**SmartHealth** is a comprehensive digital health surveillance and outbreak prediction system. Designed for health administrators, operators, and public users, it provides real-time surveillance of water-borne diseases, automated outbreak risk prediction, and localized alert management.
 
-**Status:** ✅ All 7 tasks completed and production-ready
+The system integrates an **ML prediction pipeline** (Random Forest Classifier) with a robust **Node.js/Express backend** and an interactive **React + TypeScript frontend dashboard**. By capturing patient case reports directly from clinical staff and field operators (both manually and in bulk), SmartHealth predicts potential outbreaks, triggers localized alerts, and automatically emails warnings to registered users.
+
+---
 
 ## 🎯 Key Features
 
-### Predictions
-- Real-time water quality risk assessment
-- Batch prediction processing
-- Risk levels: LOW, MEDIUM, HIGH
-- Confidence scoring (0-100%)
-- Automated recommendations
+### 1. Water-Borne Disease Case Surveillance
+*   **Manual Case Reporting**: Clinical staff and field operators can submit patient case reports capturing age, sex, location (district), village/area, symptoms, severity, and clinical remarks.
+*   **Bulk CSV Upload**: Ingest case reports in bulk. Uploads are strictly authenticated, sandboxed per user, and automatically geofenced to the operator's assigned district to prevent geographic data mismatch.
 
-### Alerts
-- Consecutive HIGH detection (2+ in 24h)
-- Automatic severity escalation
-- Operator acknowledgment & resolution
-- Email notifications
-- Active alert dashboard
+### 2. Machine Learning & Outbreak Prediction
+*   **Predictive ML Pipeline**: Powered by a Python Flask REST service, utilising a trained Random Forest Classifier.
+*   **Feature Engineering**: Prediction models incorporate features like pH, Turbidity, Dissolved Oxygen, contamination flags (water indices), case density, and seasonality.
+*   **Confidence Metrics**: Generates risk level predictions (`LOW`, `MEDIUM`, `HIGH`) with confidence scoring (0-100%) and automated recommendations.
+*   **Symptom Analyzer**: Parses report symptoms for critical indicators (such as severe diarrhea, cholera, typhoid, and dehydration) to trigger immediate outbreak risk evaluation.
 
-### Data Management
-- MongoDB persistence
-- Historical trend analysis
-- Prediction statistics
-- Water quality range tracking
+### 3. Intelligent Alert Lifecycle & Escalation
+*   **Escalation Logic**: Checks for consecutive high-risk outbreaks. If exactly **TWO consecutive HIGH risk predictions** occur at the same location within **48 hours**, an active Alert is created.
+*   **Auto-Resolution**: If subsequent risk analysis drops below `HIGH`, the active alert is automatically resolved, logging the resolution reason.
+*   **Acknowledge & Resolve**: Operators and administrators can manually review, acknowledge, and resolve active alerts via the control panel.
+
+### 4. Role-Based Access Control (RBAC) & Location Geofencing
+*   **ADMIN**: Global oversight. Views all alerts/reports across all locations, registers and manages District Operators, resolves alerts, and triggers notification resends.
+*   **OPERATOR**: Location-geofenced access. Dashboard, reports, and alert views are filtered strictly to their assigned district. Operators can only ingest data (manually or via CSV) for their own district.
+*   **USER (Public Viewer)**: Accesses only active alerts in their assigned geographic area in a simplified view (location, time, and warning reasons) to protect patient privacy.
+
+### 5. Interactive Analytics Dashboard
+*   **Surveillance Metrics**: Tracks total case reports, critical cases (3+ concurrent symptoms), and active alerts.
+*   **Demographic Splits**: Charts age groups and gender distribution of reported cases.
+*   **Symptom Mapping**: Heatmap of symptom frequencies (e.g. Diarrhea, Vomiting, Fever).
+*   **Geospatial Clusters**: Identifies geographic hotspots and clusters based on coordinates.
+*   **Surveillance History**: Dynamic time-series plotting predictions and reported cases per day.
+
+---
+
+## 🏗️ System Architecture
+
+```
+                 ┌────────────────────────────────┐
+                 │  React + TypeScript Frontend   │
+                 │   Vite Dev Server (Port 5173)  │
+                 └───────────────┬────────────────┘
+                                 │ HTTP / JSON / JWT
+                                 ▼
+                 ┌────────────────────────────────┐
+                 │       Node.js Express API      │
+                 │      Ingestion (Port 5000)     │
+                 └──────┬────────┬────────┬───────┘
+                        │        │        │
+             HTTP/JSON  │        │        │ MongoDB Connection
+       ┌────────────────┘        │        └──────────────┐
+       ▼                         ▼                       ▼
+┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+│  Python Flask│         │  Nodemailer  │         │   MongoDB    │
+│  ML Service  │         │  Email SMTP  │         │  Surveillance│
+│ (Port 5001)  │         │ Notifications│         │ (Port 27017) │
+└──────────────┘         └──────────────┘         └──────────────┘
+```
+
+---
 
 ## 🚀 Quick Start
 
-See [QUICK_START.md](QUICK_START.md) for detailed instructions.
+### Prerequisites
+*   **Python 3.8+** (with pip)
+*   **Node.js 16+** (with npm)
+*   **MongoDB** (running locally or cloud URI)
 
-### 30-Second Start
+### 1. Setup & Installation
+
+**Express Backend:**
 ```bash
-# Terminal 1
-cd ml_model && python ml_service.py
-
-# Terminal 2
-cd backend2 && npm start
-
-# Terminal 3
-cd frontend && npm run dev
+cd backend2
+npm install
+```
+Configure environment variables by copying `.env.example` to `.env`:
+```env
+PORT=5000
+MONGODB_URI=mongodb://localhost:27017/smart_health
+FRONTEND_ORIGINS=http://localhost:5173
+JWT_SECRET=your-jwt-secret-key
+EMAIL_HOST=smtp.mailtrap.io # for dev alerts
+EMAIL_PORT=2525
+EMAIL_USER=your-smtp-user
+EMAIL_PASS=your-smtp-pass
 ```
 
-Access dashboard at: http://localhost:5173
-
-## 📦 What's Included
-
-### Code Components (2,000+ lines)
-- `ml_model/ml_pipeline.py` - ML training & inference
-- `ml_model/ml_service.py` - Flask REST API
-- `backend2/utils/mlClient.js` - ML service client
-- `backend2/routes/mlPredictions.js` - Prediction API
-- `backend2/utils/alertManager.js` - Alert management
-- `backend2/routes/alerts.js` - Alert API
-
-### Scripts & Tools
-- `test_integration.py` - End-to-end tests (25+ cases)
-- `ml_model/sensor_simulator.py` - IoT sensor simulator
-- `START_ALL_SERVICES.bat` - Automated startup
-
-### Documentation (3,000+ lines)
-- `SYSTEM_INTEGRATION_GUIDE.md` - Architecture & API
-- `TESTING_AND_STABILITY_GUIDE.md` - Testing & monitoring
-- `PROJECT_COMPLETION_SUMMARY.md` - Full project overview
-- `QUICK_START.md` - Quick reference guide
-
-## 📊 API Endpoints
-
-### ML Predictions
+**Python ML Service:**
+```bash
+cd ml_model
+pip install -r requirements.txt
 ```
-POST   /ml-predictions/predict      - Single prediction
-POST   /ml-predictions/batch        - Batch predictions
-GET    /ml-predictions              - List predictions
-GET    /ml-predictions/:id          - Prediction details
-GET    /ml-predictions/stats/summary - Statistics
+Train the initial model using sample dataset:
+```bash
+python train.py
 ```
 
-### Alerts
-```
-GET    /alerts                      - List alerts
-GET    /alerts/active               - Active alerts only
-GET    /alerts/stats                - Alert statistics
-GET    /alerts/:id                  - Alert details
-POST   /alerts/:id/acknowledge      - Mark reviewed
-POST   /alerts/:id/resolve          - Mark resolved
+**React Frontend:**
+```bash
+cd frontend
+npm install
 ```
 
-## 🔐 Role-Based Alert Visibility
+### 2. Running the System
 
-**What Changed:**
-- Added `role` field to User model (enum: ADMIN, OPERATOR, USER; default: USER)
-- Added `locations` array field to User model for geographic scoping
-- Implemented role-based filtering in GET /api/alerts endpoint
-- Added authorization checks to POST /api/alerts/{id}/resolve (ADMIN + OPERATOR only)
-- Added authorization checks to POST /api/alerts/{id}/notify (ADMIN only)
-- Enhanced AlertsPanel component to hide/show UI elements by role
+Start the services in separate terminal windows:
 
-**Why:**
-- Implement hierarchical access control (admin oversight, operator action, user visibility)
-- Enforce location-based responsibility assignment
-- Prevent unauthorized alert management (resolution, notifications)
-- Protect sensitive metadata from viewer-level users
+*   **Terminal 1 (ML Service):**
+    ```bash
+    cd ml_model
+    python ml_service.py
+    ```
+    *Starts the Flask API on http://localhost:5001*
 
-**Backward Compatibility:**
-- Default role: USER (most restrictive, preserves existing behavior)
-- Optional locations field (existing users get empty array)
-- JWT payload expanded: role and locations included on login
-- GET /api/alerts works without role (anonymous still supported)
-- Middleware defaults missing fields safely (role='USER', locations=[])
-- No URL changes; no breaking API modifications
-- Existing tests continue to pass; legacy tokens default to USER role
+*   **Terminal 2 (Express Backend):**
+    ```bash
+    cd backend2
+    npm run dev
+    ```
+    *Starts the ingestion server on http://localhost:5000*
 
-**Access Levels:**
-| Role | Alert Visibility | Actions |
-|------|------------------|---------|
-| **ADMIN** | All alerts, all locations | Full details, resolve, send notifications |
-| **OPERATOR** | Assigned locations only, all statuses | Full details, resolve alerts |
-| **USER** | Assigned locations, ACTIVE only | Simplified view (location + reason + time) |
+*   **Terminal 3 (Vite Frontend):**
+    ```bash
+    cd frontend
+    npm run dev
+    ```
+    *Access the dashboard at http://localhost:5173*
+
+---
+
+## 📊 API Surface
+
+### Authentication
+```
+POST   /auth/register            - Register new user
+POST   /auth/login               - Login and receive JWT
+```
+
+### Case Reports
+```
+POST   /report                   - Ingest a case report (maps to /reports)
+GET    /reports                  - Query / list case reports (filtered by user context)
+```
+
+### Outbreak Predictions
+```
+POST   /predictions              - Save prediction & check alerts
+GET    /predictions              - Query predictions history
+GET    /predictions/landing-stats - Public landing page summary statistics
+```
+
+### CSV Uploads
+```
+POST   /upload/case-reports      - Upload case reports CSV (authenticated)
+GET    /upload/stats             - Ingested statistics summary
+```
+
+### Alerts API
+```
+GET    /api/alerts               - List active / resolved alerts (filtered by role/district)
+GET    /api/alerts/stats/summary - Aggregate alert statistics
+POST   /api/alerts/:id/resolve   - Manually resolve active alert (Operator/Admin)
+POST   /api/alerts/:id/notify    - Resend alert email notification (Admin only)
+```
+
+---
 
 ## 🧪 Testing
 
 ### Run Integration Tests
+SmartHealth includes a complete automated test suite verifying auth, report submission, ML prediction generation, alert creation, escalation, and geofencing.
 ```bash
+# In project root
 python test_integration.py
 ```
-- 25+ test cases
-- All major workflows
-- Performance validation
-
-### Run IoT Simulator
-```bash
-python ml_model/sensor_simulator.py
-```
-- 5 simulated sensor locations
-- Realistic water quality variations
-- Anomaly injection
-- Configurable intervals
-
-## 🏗️ Architecture
-
-```
-Frontend (React)
-     ↓
-Backend (Node.js + MongoDB)
-     ↓
-ML Service (Flask)
-     ↓
-ML Model (scikit-learn)
-```
-
-**Data Flow:**
-1. Frontend/Sensors → Backend API
-2. Backend → ML Service for prediction
-3. ML Service → Trained model → Risk level
-4. Backend → Saves prediction & checks for alerts
-5. Alert Manager → Creates escalation alerts
-6. Frontend → Displays predictions & alerts
-
-## 📈 Performance
-
-**Response Times:**
-- Single prediction: 100-300ms
-- Batch (100 items): 500-800ms
-- Alert check: 50-150ms
-
-**Throughput:**
-- ML Service: 10-20 predictions/second
-- Backend: 20-30 requests/second
-- Database: 100+ queries/second
-
-## 🔒 Configuration
-
-### Environment Variables
-
-**backend2/.env**
-```
-MONGODB_URI=mongodb://localhost:27017/smart_health
-FRONTEND_ORIGINS=http://localhost:5173
-ML_SERVICE_URL=http://localhost:5001
-PORT=5000
-```
-
-**ml_model/.env** (optional)
-```
-ML_SERVICE_PORT=5001
-```
-
-## 📚 Documentation Structure
-
-- **Getting Started:** QUICK_START.md
-- **Architecture:** SYSTEM_INTEGRATION_GUIDE.md
-- **Testing:** TESTING_AND_STABILITY_GUIDE.md
-- **Project Overview:** PROJECT_COMPLETION_SUMMARY.md
-
-## ✅ Project Completion
-
-All 7 tasks completed:
-
-1. ✅ **ML Stabilization** - Production ML pipeline
-2. ✅ **ML Service** - Flask REST API with 5 endpoints
-3. ✅ **Backend Integration** - Node.js connection to ML service
-4. ✅ **Alert Logic** - Consecutive HIGH detection & escalation
-5. ✅ **Frontend Improvements** - Dashboard-ready components
-6. ✅ **IoT Simulation** - Realistic sensor simulator
-7. ✅ **Testing & Stability** - 25+ integration tests
-
-## 🛠️ Development
-
-### Tech Stack
-- **Backend:** Node.js, Express, MongoDB
-- **Frontend:** React, TypeScript, Vite
-- **ML:** Python, scikit-learn, Flask
-- **Testing:** Python requests library
-- **Database:** MongoDB (local or cloud)
-
-### Project Structure
-```
-/
-├── ml_model/
-│   ├── ml_pipeline.py          # ML training
-│   ├── ml_service.py           # Flask API
-│   ├── sensor_simulator.py      # IoT simulator
-│   └── requirements.txt
-├── backend2/
-│   ├── routes/
-│   │   ├── mlPredictions.js    # Prediction API
-│   │   └── alerts.js           # Alert API
-│   ├── utils/
-│   │   ├── mlClient.js         # ML client
-│   │   └── alertManager.js     # Alert logic
-│   └── index.js
-├── frontend/
-│   └── src/
-│       └── components/         # React components
-├── test_integration.py          # Integration tests
-└── START_ALL_SERVICES.bat       # Startup automation
-```
-
-## 🚀 Deployment
-
-### Prerequisites
-- Python 3.8+
-- Node.js 14+
-- MongoDB 4.4+
-
-### Installation
-```bash
-# Backend
-cd backend2 && npm install
-
-# ML
-cd ml_model && pip install -r requirements.txt
-
-# Frontend
-cd frontend && npm install
-```
-
-### Running
-```bash
-# Terminal 1 - ML
-cd ml_model && python ml_service.py
-
-# Terminal 2 - Backend
-cd backend2 && npm start
-
-# Terminal 3 - Frontend
-cd frontend && npm run dev
-```
-
-## 📊 Data Models
-
-### ML Prediction
-```javascript
-{
-  predictionType: "Water Quality",
-  riskLevel: "low|medium|high",
-  confidence: 0-100,
-  location: string,
-  waterQualityInput: {
-    pH: number,
-    Turbidity: number,
-    Dissolved_Oxygen: number
-  },
-  recommendations: [string]
-}
-```
-
-### Alert
-```javascript
-{
-  alertType: "consecutive_high_predictions",
-  severity: "low|medium|high|critical",
-  status: "active|acknowledged|resolved",
-  consecutiveCount: number,
-  location: string,
-  predictions: [ObjectId]
-}
-```
-
-## 🐛 Troubleshooting
-
-**ML Service won't start:**
-```bash
-cd ml_model && python ml_pipeline.py  # Train first
-```
-
-**Backend connection issues:**
-```bash
-# Check MongoDB
-mongo smart_health
-
-# Check ports
-netstat -ano | findstr ":5000 :5001"
-```
-
-**No predictions saved:**
-- Verify MongoDB connection
-- Check MONGODB_URI environment variable
-- Review backend logs
-
-See [TESTING_AND_STABILITY_GUIDE.md](TESTING_AND_STABILITY_GUIDE.md) for more troubleshooting.
-
-## 📊 Monitoring
-
-### Health Checks
-```bash
-curl http://localhost:5001/health      # ML Service
-curl http://localhost:5000/alerts/stats # Backend
-```
-
-### Recent Data
-```bash
-curl http://localhost:5000/ml-predictions?limit=5
-curl http://localhost:5000/alerts/active
-```
-
-## 🤝 Contributing
-
-To extend SmartHealth:
-
-1. **New ML Features:** Update `ml_model/ml_pipeline.py`
-2. **New Predictions:** Add endpoint to `backend2/routes/mlPredictions.js`
-3. **New Alerts:** Extend `backend2/utils/alertManager.js`
-4. **Frontend Updates:** Modify React components in `frontend/src/components/`
-5. **Tests:** Add test cases to `test_integration.py`
-
-## 📄 License
-
-SmartHealth is an open-source project.
-
-## 📞 Support
-
-For issues or questions:
-
-1. Check relevant documentation file
-2. Review code comments
-3. Run integration tests to validate setup
-4. Check logs in service terminals
-
-## 🎉 Credits
-
-**SmartHealth** - Water Quality Monitoring System  
-Built with ❤️ for health and safety
 
 ---
 
-**Version:** 1.0 (Production Ready)  
-**Last Updated:** 2024  
-**Status:** ✅ Complete and Operational
+## 📁 Repository Structure
+
+```
+SmartHealth/
+│
+├── backend2/                    # Node.js Express API Service
+│   ├── models/                  # MongoDB Mongoose Schemas (User, Alert, AuditLog)
+│   ├── routes/                  # API Routers (auth, reports, predictions, uploads, alerts)
+│   ├── services/                # Services (alertChecker, alertNotifier)
+│   ├── utils/                   # Utilities (auth, mailer, auditLogger)
+│   └── index.js                 # Backend Server Entrypoint
+│
+├── ml_model/                    # Python Flask ML Service
+│   ├── models/                  # Trained joblib files (disease_model, scaler)
+│   ├── ml_pipeline.py           # Classifier pipeline & feature engineering
+│   ├── ml_service.py            # Flask REST Endpoint (predict, health, info)
+│   └── train.py                 # Training script
+│
+├── frontend/                    # Vite + React + TypeScript App
+│   ├── src/
+│   │   ├── components/          # React Components (Dashboard, CSVUpload, Analytics, etc.)
+│   │   └── App.tsx              # Main UI Controller
+│
+└── test_integration.py          # End-to-End Integration Verification Script
+```

@@ -12,22 +12,20 @@
  *  - If called with no `recipients` (automatic, system-triggered alert),
  *    it notifies ALL admins + the OPERATOR of the affected district only.
  *    Regular USERS are never notified.
+ *
+ * 🔑 FIX: This used to create its own nodemailer transporter reading
+ * EMAIL_HOST/EMAIL_USER/EMAIL_PASSWORD env vars — a completely different set
+ * of variables than the rest of the app (utils/mailer.js uses SMTP_HOST/
+ * SMTP_USER/SMTP_PASS). Since only SMTP_* was ever configured, this file's
+ * transporter silently fell back to placeholder credentials and failed to
+ * authenticate on every send — which is why manual admin/operator "Send
+ * Alert" notifications never actually delivered mail. Now it reuses
+ * sendBulkEmail() / createTransporter() from utils/mailer.js so there is a
+ * single source of truth for email config.
  */
 
-const nodemailer = require('nodemailer');
+const { sendBulkEmail, createTransporter } = require('../utils/mailer');
 const { markAlertNotified } = require('./alertChecker');
-
-// Configure email transporter
-// Uses environment variables: EMAIL_USER, EMAIL_PASSWORD, EMAIL_HOST, EMAIL_PORT
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: process.env.EMAIL_PORT || 587,
-  secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
-  auth: {
-    user: process.env.EMAIL_USER || 'noreply@smarthealthwatersystem.com',
-    pass: process.env.EMAIL_PASSWORD || 'your-app-password',
-  },
-});
 
 /**
  * Send alert notification email
@@ -158,29 +156,47 @@ This is an automated alert from SmartHealth Monitoring System.
 Please review the dashboard for detailed information.
     `;
 
-    // Send email
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@smarthealthwatersystem.com',
-      to: emailRecipients.join(','),
-      subject: subject,
-      html: htmlBody,
-      text: textBody,
-      replyTo: process.env.ADMIN_EMAIL || 'admin@smarthealthwatersystem.com',
-    };
-
     console.log(`[AlertNotifier] Sending alert email for ${alert.location} to ${emailRecipients.length} recipient(s)`);
 
-    const info = await transporter.sendMail(mailOptions);
+    // Retry mechanism for email sending
+    let lastError = null;
+    const maxRetries = 3;
 
-    console.log(`[AlertNotifier] Email sent successfully: ${info.response}`);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const info = await sendBulkEmail(emailRecipients, subject, textBody, htmlBody);
 
-    // Mark alert as notified
-    await markAlertNotified(alert._id, true, null);
+        console.log(`[AlertNotifier] Email sent successfully (attempt ${attempt})`);
+
+        // Mark alert as notified
+        await markAlertNotified(alert._id, true, null);
+
+        return {
+          success: true,
+          message: `Email sent to ${emailRecipients.length} recipient(s)`,
+          messageId: info.messageId,
+        };
+      } catch (error) {
+        lastError = error;
+        console.error(`[AlertNotifier] Attempt ${attempt} failed: ${error.message}`);
+
+        if (attempt < maxRetries) {
+          const waitTime = Math.pow(2, attempt) * 1000;
+          console.log(`[AlertNotifier] Retrying in ${waitTime / 1000}s...`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    // All retries failed - log error but don't throw (safety)
+    console.error(`[AlertNotifier] Failed after ${maxRetries} attempts: ${lastError.message}`);
+
+    await markAlertNotified(alert._id, false, lastError.message);
 
     return {
-      success: true,
-      message: `Email sent to ${emailRecipients.length} recipient(s)`,
-      messageId: info.messageId,
+      success: false,
+      message: `Failed to send notification: ${lastError.message}`,
+      error: lastError.message,
     };
   } catch (error) {
     console.error('[AlertNotifier] Error sending alert notification:', error.message);
@@ -207,7 +223,7 @@ async function testEmailConfiguration() {
   try {
     console.log('[AlertNotifier] Testing email configuration...');
 
-    // Verify transporter
+    const transporter = await createTransporter();
     await transporter.verify();
 
     console.log('[AlertNotifier] Email configuration verified');
