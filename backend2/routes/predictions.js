@@ -103,6 +103,7 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
 
     // Check for alerts if this is a HIGH risk
     let alertResult = null;
+    let alertNotifyResult = null;
     if (prediction.riskLevel && prediction.riskLevel.toLowerCase() === 'high') {
       console.log(`✓ Condition met: riskLevel is HIGH, checking for alerts...`);
       try {
@@ -118,15 +119,21 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
         alertResult = await checkForAlerts(predictionForAlert);
         console.log(`📡 checkForAlerts returned:`, alertResult);
 
+        // Email is sent HERE ONLY — via notifyAlertCreation — when a brand
+        // new alert is created. notifyUsersOfPrediction() used to also fire
+        // for this same case, and both functions resolve to the exact same
+        // admin/operator recipient list (getAutomaticAlertRecipients), so
+        // every new alert was sending two separate emails to the same
+        // people. This route now sends exactly one.
         if (alertResult && alertResult.action === 'created' && alertResult.alert) {
           console.log(`🚨 [Alert] CREATED: ${alertResult.message}`);
 
-          // Send notification
           try {
-            const notifyResult = await notifyAlertCreation(alertResult.alert);
-            console.log(`📧 [Alert] Notification sent: ${notifyResult.message}`);
+            alertNotifyResult = await notifyAlertCreation(alertResult.alert);
+            console.log(`📧 [Alert] Notification sent: ${alertNotifyResult.message}`);
           } catch (notifyError) {
             console.error(`⚠️  [Alert] Notification failed (non-blocking): ${notifyError.message}`);
+            alertNotifyResult = { success: false, error: notifyError.message };
           }
         } else if (alertResult && alertResult.action === 'resolved' && alertResult.alert) {
           console.log(`✅ [Alert] RESOLVED: ${alertResult.message}`);
@@ -141,50 +148,38 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
       console.log(`⊘ Skipping alert check: riskLevel="${prediction.riskLevel}"`);
     }
 
-    // Send email notifications to all users
-    try {
-      const result = await notifyUsersOfPrediction(prediction);
-      console.log(`📧 Email notification result:`, result);
+    // Build the notification field for the response. No separate email call
+    // here — alertNotifyResult (if any) already reflects the one email sent
+    // above via notifyAlertCreation when action === 'created'.
+    const shouldHaveNotified = !!(alertResult && alertResult.action === 'created');
+    const notification = shouldHaveNotified
+      ? (alertNotifyResult || { success: false, skipped: true, reason: 'Alert notification did not run' })
+      : {
+        success: false,
+        skipped: true,
+        reason: !alertResult
+          ? 'Not a HIGH risk prediction — no alert check performed'
+          : `Alert not newly created (action: "${alertResult.action}") — no duplicate email sent`,
+      };
 
-      return res.status(201).json({
-        message: "Prediction created and notifications sent",
-        prediction: {
-          id: prediction._id,
-          predictionType: prediction.predictionType,
-          riskLevel: prediction.riskLevel,
-          location: prediction.location,
-          predictedDate: prediction.predictedDate,
-        },
-        notification: result,
-        alert: alertResult ? {
-          action: alertResult.action,
-          message: alertResult.message,
-          alertId: alertResult.alert ? alertResult.alert._id : null,
-        } : null,
-      });
-    } catch (emailError) {
-      console.error("Failed to send email notifications:", emailError.message);
-      // Still return success for prediction creation
-      return res.status(201).json({
-        message: "Prediction created but email notification failed",
-        prediction: {
-          id: prediction._id,
-          predictionType: prediction.predictionType,
-          riskLevel: prediction.riskLevel,
-          location: prediction.location,
-          predictedDate: prediction.predictedDate,
-        },
-        notification: {
-          success: false,
-          error: emailError.message,
-        },
-        alert: alertResult ? {
-          action: alertResult.action,
-          message: alertResult.message,
-          alertId: alertResult.alert ? alertResult.alert._id : null,
-        } : null,
-      });
-    }
+    return res.status(201).json({
+      message: shouldHaveNotified
+        ? "Prediction created and alert notification sent"
+        : "Prediction created (no new alert — notification skipped)",
+      prediction: {
+        id: prediction._id,
+        predictionType: prediction.predictionType,
+        riskLevel: prediction.riskLevel,
+        location: prediction.location,
+        predictedDate: prediction.predictedDate,
+      },
+      notification,
+      alert: alertResult ? {
+        action: alertResult.action,
+        message: alertResult.message,
+        alertId: alertResult.alert ? alertResult.alert._id : null,
+      } : null,
+    });
   } catch (error) {
     console.error("Error creating prediction:", error.message);
     return res.status(500).json({

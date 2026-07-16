@@ -198,14 +198,22 @@ async function createPredictionAndNotify(report, analysis) {
       console.error(`⚠️  [Case Report Alert] Alert check failed (non-blocking):`, alertError.message);
     }
 
-    // Send email notification to all users
-    console.log(`📧 [Case Report Prediction] Sending email alerts for HIGH RISK case...`);
-    const notificationResult = await notifyUsersOfPrediction(prediction);
+    // Send email notification ONLY when a NEW alert was just created — not
+    // for every HIGH-risk report. Previously this fired unconditionally,
+    // sending a duplicate email each time a report came in for an area that
+    // already had an active alert.
+    let notificationResult = { success: false, count: 0, skipped: true, message: 'No new alert — notification skipped' };
+    if (alertResult && alertResult.action === 'created') {
+      console.log(`📧 [Case Report Prediction] Sending email alerts for newly created alert...`);
+      notificationResult = await notifyUsersOfPrediction(prediction);
 
-    if (notificationResult.success && notificationResult.count > 0) {
-      console.log(`✅ [Case Report Prediction] Email alerts sent to ${notificationResult.count} users`);
+      if (notificationResult.success && notificationResult.count > 0) {
+        console.log(`✅ [Case Report Prediction] Email alerts sent to ${notificationResult.count} users`);
+      } else {
+        console.log(`⚠️  [Case Report Prediction] Email notification result: ${notificationResult.message}`);
+      }
     } else {
-      console.log(`⚠️  [Case Report Prediction] Email notification result: ${notificationResult.message}`);
+      console.log(`📭 [Case Report Prediction] Skipping email — ${alertResult ? `alert action was "${alertResult.action}"` : 'no alert result'}`);
     }
 
     return {

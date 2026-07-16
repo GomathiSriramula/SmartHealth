@@ -181,15 +181,23 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
         console.error(alertError);
       }
 
-      // Email notification per HIGH-risk row
-      try {
-        notificationResult = await notifyUsersOfPrediction(prediction);
-        if (notificationResult.success && notificationResult.count > 0) {
-          notificationsSent += notificationResult.count;
-          console.log(`✅ [CSV Row] Email alerts sent to ${notificationResult.count} users`);
+      // Email notification only when a NEW alert was just created for this
+      // row — not for every HIGH-risk row. Previously this fired whenever
+      // riskLevel === 'high' regardless of alertResult.action, so a batch of
+      // rows for the same already-alerted area sent a flood of duplicate
+      // emails.
+      if (alertResult && alertResult.action === 'created') {
+        try {
+          notificationResult = await notifyUsersOfPrediction(prediction);
+          if (notificationResult.success && notificationResult.count > 0) {
+            notificationsSent += notificationResult.count;
+            console.log(`✅ [CSV Row] Email alerts sent to ${notificationResult.count} users`);
+          }
+        } catch (notifyErr) {
+          console.error(`⚠️  [CSV Row] Email notification failed (non-blocking): ${notifyErr.message}`);
         }
-      } catch (notifyErr) {
-        console.error(`⚠️  [CSV Row] Email notification failed (non-blocking): ${notifyErr.message}`);
+      } else {
+        console.log(`📭 [CSV Row] Skipping email — ${alertResult ? `alert action was "${alertResult.action}"` : 'no alert result'}`);
       }
     }
 
