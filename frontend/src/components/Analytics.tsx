@@ -213,19 +213,18 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">📊 Analytics Dashboard</h1>
             <p className="text-gray-600 mt-2">
-              Real-time insights from admin submissions and ML predictions
+              Real-time insights from admin submissions and risk analysis
             </p>
           </div>
-          
+
           <div className="flex items-center space-x-4">
             {/* Auto-refresh toggle */}
             <button
               onClick={() => setAutoRefresh(!autoRefresh)}
-              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                autoRefresh
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${autoRefresh
+                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
             >
               {autoRefresh ? '🔄 Auto-refresh ON' : '⏸️ Auto-refresh OFF'}
             </button>
@@ -260,11 +259,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
             <button
               key={range}
               onClick={() => handleTimeRangeChange(range)}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                timeRange === range
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-              }`}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${timeRange === range
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
             >
               {range} days
             </button>
@@ -283,11 +281,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
             <button
               key={view.id}
               onClick={() => setSelectedView(view.id as 'all' | 'symptoms' | 'demographics' | 'locations')}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                selectedView === view.id
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
-              }`}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${selectedView === view.id
+                ? 'bg-purple-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'
+                }`}
             >
               {view.label}
             </button>
@@ -296,7 +293,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
 
         {/* Last updated */}
         <p className="text-xs text-gray-500 mt-2">
-          Last updated: {lastRefresh.toLocaleTimeString()} • 
+          Last updated: {lastRefresh.toLocaleTimeString()} •
           {autoRefresh && ' Auto-refreshing every 30 seconds'}
         </p>
       </div>
@@ -340,7 +337,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">ML Predictions</p>
+              <p className="text-sm text-gray-600">Risk Assessments</p>
               <p className="text-3xl font-bold text-gray-900 mt-2">
                 {(data.summary.totalPredictions || 0).toLocaleString()}
               </p>
@@ -383,35 +380,35 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Area 
-                type="monotone" 
-                dataKey="caseReports" 
-                stroke="#8b5cf6" 
-                fill="#8b5cf6" 
+              <Area
+                type="monotone"
+                dataKey="caseReports"
+                stroke="#8b5cf6"
+                fill="#8b5cf6"
                 fillOpacity={0.6}
                 name="Case Reports"
               />
-              <Area 
-                type="monotone" 
-                dataKey="high" 
+              <Area
+                type="monotone"
+                dataKey="high"
                 stackId="1"
-                stroke={COLORS.high} 
-                fill={COLORS.high} 
+                stroke={COLORS.high}
+                fill={COLORS.high}
                 name="High Risk"
               />
-              <Area 
-                type="monotone" 
-                dataKey="medium" 
+              <Area
+                type="monotone"
+                dataKey="medium"
                 stackId="1"
-                stroke={COLORS.medium} 
+                stroke={COLORS.medium}
                 fill={COLORS.medium}
                 name="Medium Risk"
               />
-              <Area 
-                type="monotone" 
-                dataKey="low" 
+              <Area
+                type="monotone"
+                dataKey="low"
                 stackId="1"
-                stroke={COLORS.low} 
+                stroke={COLORS.low}
                 fill={COLORS.low}
                 name="Low Risk"
               />
@@ -434,7 +431,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
                   cy="50%"
                   labelLine={false}
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  label={(entry: any) => 
+                  label={(entry: any) =>
                     `${entry.name}: ${entry.value} (${(entry.percent * 100).toFixed(0)}%)`
                   }
                   outerRadius={100}
@@ -502,15 +499,15 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
-                    data={Object.entries(data.demographics.genderDistribution).map(([name, value]) => ({ 
-                      name: name === 'M' ? 'Male' : name === 'F' ? 'Female' : 'Other', 
-                      value 
+                    data={Object.entries(data.demographics.genderDistribution).map(([name, value]) => ({
+                      name: name === 'M' ? 'Male' : name === 'F' ? 'Female' : 'Other',
+                      value
                     }))}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    label={(entry: any) => 
+                    label={(entry: any) =>
                       entry.value > 0 ? `${entry.name}: ${entry.value} (${(entry.percent * 100).toFixed(0)}%)` : null
                     }
                     outerRadius={100}
@@ -544,12 +541,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
                 {data.topLocations.map((location, index) => (
                   <div key={index} className="flex items-center justify-between hover:bg-gray-50 p-2 rounded transition-colors">
                     <div className="flex items-center space-x-3">
-                      <span className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                        index === 0 ? 'bg-yellow-100 text-yellow-700' :
+                      <span className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${index === 0 ? 'bg-yellow-100 text-yellow-700' :
                         index === 1 ? 'bg-gray-100 text-gray-700' :
-                        index === 2 ? 'bg-orange-100 text-orange-700' :
-                        'bg-blue-100 text-blue-700'
-                      }`}>
+                          index === 2 ? 'bg-orange-100 text-orange-700' :
+                            'bg-blue-100 text-blue-700'
+                        }`}>
                         {index + 1}
                       </span>
                       <span className="text-gray-700">{location.location}</span>

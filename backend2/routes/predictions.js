@@ -10,6 +10,19 @@ const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
 
 /**
+ * Format a Date as YYYY-MM-DD using LOCAL time (not UTC).
+ * Using toISOString().split('T')[0] shifts the date to UTC, which can bucket
+ * a report submitted late at night into the previous day on the chart.
+ */
+function toLocalDateString(date) {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * POST /predictions
  * Create a new prediction and notify all registered users
  * 
@@ -100,14 +113,14 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
           risk: prediction.riskLevel, // Convert riskLevel to risk
           predictedAt: prediction.predictedDate, // Convert predictedDate to predictedAt
         };
-        
+
         console.log(`📡 Calling checkForAlerts with location="${predictionForAlert.location}"...`);
         alertResult = await checkForAlerts(predictionForAlert);
         console.log(`📡 checkForAlerts returned:`, alertResult);
-        
+
         if (alertResult && alertResult.action === 'created' && alertResult.alert) {
           console.log(`🚨 [Alert] CREATED: ${alertResult.message}`);
-          
+
           // Send notification
           try {
             const notifyResult = await notifyAlertCreation(alertResult.alert);
@@ -237,11 +250,11 @@ router.get("/predictions/landing-stats", async (req, res) => {
     // Get predictions from last 30 days for landing page stats
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const recentPredictions = await Prediction.find({
       predictedDate: { $gte: thirtyDaysAgo }
     });
-    
+
     // If no predictions, return default values
     if (recentPredictions.length === 0) {
       return res.json({
@@ -251,34 +264,34 @@ router.get("/predictions/landing-stats", async (req, res) => {
         totalMonitored: recentPredictions.length
       });
     }
-    
+
     // Calculate risk distribution
-    const highRisk = recentPredictions.filter(p => 
+    const highRisk = recentPredictions.filter(p =>
       p.riskLevel && p.riskLevel.toLowerCase() === 'high'
     ).length;
-    
-    const mediumRisk = recentPredictions.filter(p => 
+
+    const mediumRisk = recentPredictions.filter(p =>
       p.riskLevel && p.riskLevel.toLowerCase() === 'medium'
     ).length;
-    
-    const lowRisk = recentPredictions.filter(p => 
+
+    const lowRisk = recentPredictions.filter(p =>
       p.riskLevel && p.riskLevel.toLowerCase() === 'low'
     ).length;
-    
+
     const total = recentPredictions.length;
-    
+
     // Calculate percentages
     const alertZones = Math.round((highRisk / total) * 100);
     const atRisk = Math.round((mediumRisk / total) * 100);
     const healthyAreas = 100 - alertZones - atRisk;
-    
+
     return res.json({
       healthyAreas: healthyAreas >= 0 ? healthyAreas : 0,
       atRisk,
       alertZones,
       totalMonitored: total
     });
-    
+
   } catch (error) {
     console.error("Error fetching landing stats:", error.message);
     // Return default values on error
@@ -399,12 +412,12 @@ router.delete("/predictions/:id", authMiddleware, async (req, res) => {
 router.get("/analytics", authMiddleware, async (req, res) => {
   try {
     const { timeRange = "30" } = req.query; // Default to last 30 days
-    
+
     // Calculate date range
     const daysAgo = parseInt(timeRange) || 30;
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysAgo);
-    
+
     // Get all predictions within the time range
     const districtFilter = buildDistrictFilter(req.user);
 
@@ -412,42 +425,42 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       ...districtFilter,
       predictedDate: { $gte: startDate }
     }).sort({ predictedDate: -1 });
-    
+
     const allPredictions = await Prediction.find(districtFilter);
-    
+
     // Get case reports from admins
     const caseReports = await CaseReport.find({
       ...districtFilter,
       reported_at: { $gte: startDate }
     }).sort({ reported_at: -1 });
-    
+
     const allCaseReports = await CaseReport.find(districtFilter);
-    
+
     // Risk Level Distribution
     const riskDistribution = {
       high: predictions.filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'high').length,
       medium: predictions.filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'medium').length,
       low: predictions.filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'low').length,
     };
-    
+
     // Total counts
     const totalPredictions = allPredictions.length;
     const recentPredictions = predictions.length;
     const totalCaseReports = allCaseReports.length;
-    
+
     // Average confidence
     const predictionsWithConfidence = predictions.filter(p => p.confidence);
     const averageConfidence = predictionsWithConfidence.length > 0
       ? predictionsWithConfidence.reduce((sum, p) => sum + p.confidence, 0) / predictionsWithConfidence.length
       : 0;
-    
+
     // Predictions by type
     const predictionTypes = {};
     predictions.forEach(p => {
       const type = p.predictionType || 'Unknown';
       predictionTypes[type] = (predictionTypes[type] || 0) + 1;
     });
-    
+
     // Symptoms distribution from case reports
     const symptomsDistribution = {};
     caseReports.forEach(report => {
@@ -457,52 +470,62 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         });
       }
     });
-    
+
     // Top 10 symptoms
     const topSymptoms = Object.entries(symptomsDistribution)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([symptom, count]) => ({ symptom, count }));
-    
+
     // Demographics from case reports
     const ageGroups = {
       '0-18': 0,
       '19-35': 0,
       '36-50': 0,
       '51-65': 0,
-      '65+': 0
+      '65+': 0,
+      'Unknown': 0
     };
-    
+
     const genderDistribution = { M: 0, F: 0, O: 0 };
-    
+
     caseReports.forEach(report => {
-      // Age groups
-      const age = report.patient_age;
-      if (age <= 18) ageGroups['0-18']++;
-      else if (age <= 35) ageGroups['19-35']++;
-      else if (age <= 50) ageGroups['36-50']++;
-      else if (age <= 65) ageGroups['51-65']++;
-      else ageGroups['65+']++;
-      
+      // Age groups — only bucket valid, non-negative numeric ages.
+      // Missing/invalid patient_age used to fall through to '65+' by accident
+      // (undefined <= 18/35/50/65 all evaluate to false), silently skewing
+      // the Age Distribution chart. Now it goes to an explicit 'Unknown' bucket.
+      const age = Number(report.patient_age);
+      if (Number.isFinite(age) && age >= 0) {
+        if (age <= 18) ageGroups['0-18']++;
+        else if (age <= 35) ageGroups['19-35']++;
+        else if (age <= 50) ageGroups['36-50']++;
+        else if (age <= 65) ageGroups['51-65']++;
+        else ageGroups['65+']++;
+      } else {
+        ageGroups['Unknown']++;
+      }
+
       // Gender
       if (report.sex) {
         genderDistribution[report.sex] = (genderDistribution[report.sex] || 0) + 1;
       }
     });
-    
+
     // Reporter types
     const reporterTypes = {};
     caseReports.forEach(report => {
       const type = report.reporter_type || 'Unknown';
       reporterTypes[type] = (reporterTypes[type] || 0) + 1;
     });
-    
+
     // Time series data (predictions and case reports per day)
     const timeSeriesData = [];
     const dailyData = {};
-    
+
     predictions.forEach(p => {
-      const date = new Date(p.predictedDate).toISOString().split('T')[0];
+      // Use local time, not UTC, so a report made late at night doesn't get
+      // bucketed onto the previous day's bar in the chart.
+      const date = toLocalDateString(p.predictedDate);
       if (!dailyData[date]) {
         dailyData[date] = { date, high: 0, medium: 0, low: 0, total: 0, caseReports: 0 };
       }
@@ -510,51 +533,51 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       dailyData[date][risk]++;
       dailyData[date].total++;
     });
-    
+
     caseReports.forEach(report => {
-      const date = new Date(report.reported_at).toISOString().split('T')[0];
+      const date = toLocalDateString(report.reported_at);
       if (!dailyData[date]) {
         dailyData[date] = { date, high: 0, medium: 0, low: 0, total: 0, caseReports: 0 };
       }
       dailyData[date].caseReports++;
     });
-    
+
     // Fill in missing dates with zeros
     for (let i = daysAgo - 1; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
+      const dateStr = toLocalDateString(date);
       if (!dailyData[dateStr]) {
         dailyData[dateStr] = { date: dateStr, high: 0, medium: 0, low: 0, total: 0, caseReports: 0 };
       }
     }
-    
+
     // Sort by date
     const sortedDates = Object.keys(dailyData).sort();
     sortedDates.forEach(date => {
       timeSeriesData.push(dailyData[date]);
     });
-    
+
     // Location hotspots from both predictions and case reports
     const locationCounts = {};
-    
+
     predictions.forEach(p => {
       if (p.location) {
         locationCounts[p.location] = (locationCounts[p.location] || 0) + 1;
       }
     });
-    
+
     caseReports.forEach(report => {
       if (report.location) {
         locationCounts[report.location] = (locationCounts[report.location] || 0) + 1;
       }
     });
-    
+
     const topLocations = Object.entries(locationCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
       .map(([location, count]) => ({ location, count }));
-    
+
     // Geographic clusters from case reports
     const geoClusters = caseReports
       .filter(r => r.lat && r.lng)
@@ -564,7 +587,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         location: r.location || 'Unknown',
         symptoms: r.symptoms || []
       }));
-    
+
     // Recent high-risk predictions
     const recentHighRisk = predictions
       .filter(p => p.riskLevel && p.riskLevel.toLowerCase() === 'high')
@@ -577,7 +600,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         date: p.predictedDate,
         details: p.details
       }));
-    
+
     // Recent individual case reports
     const recentCaseReports = caseReports
       .slice(0, 10)
@@ -594,7 +617,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         reported_at: report.reported_at,
         created_at: report.created_at
       }));
-    
+
     // Confidence distribution
     const confidenceRanges = {
       '0-20': 0,
@@ -603,7 +626,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       '61-80': 0,
       '81-100': 0
     };
-    
+
     predictionsWithConfidence.forEach(p => {
       const conf = p.confidence;
       if (conf <= 20) confidenceRanges['0-20']++;
@@ -612,7 +635,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       else if (conf <= 80) confidenceRanges['61-80']++;
       else confidenceRanges['81-100']++;
     });
-    
+
     // Model versions usage
     const modelVersions = {};
     predictions.forEach(p => {
@@ -620,7 +643,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         modelVersions[p.modelVersion] = (modelVersions[p.modelVersion] || 0) + 1;
       }
     });
-    
+
     return res.json({
       summary: {
         totalPredictions,
@@ -647,7 +670,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       confidenceDistribution: confidenceRanges,
       modelVersions
     });
-    
+
   } catch (error) {
     console.error("Error fetching analytics:", error.message);
     return res.status(500).json({
