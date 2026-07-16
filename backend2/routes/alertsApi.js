@@ -21,7 +21,13 @@ router.get('/alerts', authMiddleware, async (req, res) => {
     // Build base filter from query parameters
     const filter = buildDistrictFilter(req.user);
     if (location) {
-      filter.location = new RegExp(`^${location.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+      // Substring (contains) match, case-insensitive — lets ADMIN/USER search
+      // by a partial district name instead of requiring the exact value.
+      // (OPERATOR requests are still locked to their own district below.)
+      const trimmedLocation = location.trim();
+      if (trimmedLocation) {
+        filter.location = new RegExp(trimmedLocation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      }
     }
     if (status !== 'all') filter.status = status;
 

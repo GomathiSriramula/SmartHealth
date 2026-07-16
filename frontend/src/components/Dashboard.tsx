@@ -7,6 +7,7 @@ import { CSVUpload } from "./CSVUpload";
 import Analytics from "./Analytics";
 
 import AdminOperators from "./AdminOperators";
+import HealthAdvisory from "./HealthAdvisory";
 
 interface Report {
   _id?: string;
@@ -116,6 +117,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
+  // Alerts search/filter state
+  const [alertStatusFilter, setAlertStatusFilter] = useState<string>("active");
+  const [alertDistrictInput, setAlertDistrictInput] = useState<string>("");
+  const [alertDistrictFilter, setAlertDistrictFilter] = useState<string>("");
+
   const API_URL = "http://127.0.0.1:5000";
 
   // Fetch reports from backend
@@ -158,6 +164,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     fetchReports();
   }, [username]);
 
+  // Debounce the district search box before it drives a refetch
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setAlertDistrictFilter(alertDistrictInput.trim());
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [alertDistrictInput]);
+
   // Fetch alerts from backend
   const fetchAlerts = async () => {
     setAlertsLoading(true);
@@ -165,7 +179,17 @@ const Dashboard: React.FC<DashboardProps> = ({
       const headers: HeadersInit = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch(`${API_URL}/api/alerts?status=active&limit=50`, { headers });
+      const params = new URLSearchParams();
+      params.set("limit", "50");
+      // "all" means don't constrain by status; otherwise pass status through
+      if (alertStatusFilter !== "all") {
+        params.set("status", alertStatusFilter);
+      }
+      if (alertDistrictFilter && userRole !== "OPERATOR") {
+        params.set("location", alertDistrictFilter);
+      }
+
+      const res = await fetch(`${API_URL}/api/alerts?${params.toString()}`, { headers });
       if (res.ok) {
         const data = await res.json();
         setAlerts(data.alerts || []);
@@ -202,9 +226,12 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
 
       if (res.ok) {
-        // Since this tab only fetches status=active, a resolved alert
-        // should be removed from view rather than just updated in place.
-        setAlerts(prev => prev.filter(a => a._id !== alertId));
+        // Only the "active" view needs the alert stripped out locally —
+        // for "resolved" or "all" views the refetch below will reflect
+        // the new status correctly.
+        if (alertStatusFilter === "active") {
+          setAlerts(prev => prev.filter(a => a._id !== alertId));
+        }
         fetchAlerts(); // Refresh stats and pick up any server-side changes
       } else {
         const errBody = await res.json().catch(() => ({}));
@@ -258,14 +285,22 @@ const Dashboard: React.FC<DashboardProps> = ({
     setExpandedAlerts(newExpanded);
   };
 
-  // Load alerts when alerts tab is opened
+  // Load alerts when alerts tab is opened, and whenever filters change
   useEffect(() => {
     if (activeTab === "alerts") {
       fetchAlerts();
       const interval = setInterval(fetchAlerts, 30000); // Refresh every 30s
       return () => clearInterval(interval);
     }
-  }, [activeTab, token]);
+  }, [activeTab, token, alertStatusFilter, alertDistrictFilter]);
+
+  // Client-side safety net: even if the backend ignores/partially matches the
+  // `location` query param, this guarantees the list reflects the district
+  // search box (case-insensitive substring match).
+  const filteredAlerts = alerts.filter((alert) => {
+    if (!alertDistrictFilter) return true;
+    return alert.location?.toLowerCase().includes(alertDistrictFilter.toLowerCase());
+  });
 
   // Submit new report
   const handleSubmit = async (e: React.FormEvent) => {
@@ -501,6 +536,28 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </svg>
               }
             />
+            {/* Health Advisory - Public/community users only */}
+            {userRole === 'USER' && (
+              <TabButton
+                id="advisory"
+                label="Health Advisory"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 3c-3 4-6 7.5-6 11a6 6 0 0012 0c0-3.5-3-7-6-11z"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
             <TabButton
               id="analytics"
               label="Analytics"
@@ -1186,6 +1243,51 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </p>
               </div>
 
+              {/* Search / Filter Bar */}
+              <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-col sm:flex-row gap-3 sm:items-end">
+                {userRole !== "OPERATOR" && (
+                  <div className="flex-1">
+                    <label htmlFor="alert-district-search" className="block text-sm font-medium text-gray-700 mb-1">
+                      Search by district
+                    </label>
+                    <input
+                      id="alert-district-search"
+                      type="text"
+                      value={alertDistrictInput}
+                      onChange={(e) => setAlertDistrictInput(e.target.value)}
+                      placeholder="e.g. Hyderabad"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+                <div className="sm:w-48">
+                  <label htmlFor="alert-status-filter" className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
+                  <select
+                    id="alert-status-filter"
+                    value={alertStatusFilter}
+                    onChange={(e) => setAlertStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  >
+                    <option value="active">Active</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="all">All</option>
+                  </select>
+                </div>
+                {((alertDistrictInput && userRole !== "OPERATOR") || alertStatusFilter !== "active") && (
+                  <button
+                    onClick={() => {
+                      setAlertDistrictInput("");
+                      setAlertStatusFilter("active");
+                    }}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+
               {/* Stats */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-red-50 rounded-lg p-4 border border-red-200">
@@ -1206,13 +1308,21 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="grid gap-4">
                 {alertsLoading ? (
                   <LoadingSpinner />
-                ) : alerts.length === 0 ? (
+                ) : filteredAlerts.length === 0 ? (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                    <p className="text-green-700 font-semibold">✅ No Active Alerts</p>
-                    <p className="text-green-600">No active disease outbreaks detected</p>
+                    <p className="text-green-700 font-semibold">
+                      {alertDistrictFilter || alertStatusFilter !== "active"
+                        ? "✅ No Alerts Match Your Filters"
+                        : "✅ No Active Alerts"}
+                    </p>
+                    <p className="text-green-600">
+                      {alertDistrictFilter
+                        ? `No ${alertStatusFilter === "all" ? "" : alertStatusFilter + " "}alerts found for "${alertDistrictFilter}"`
+                        : "No active disease outbreaks detected"}
+                    </p>
                   </div>
                 ) : (
-                  alerts.map((alert) => {
+                  filteredAlerts.map((alert) => {
                     const bgColor = alert.riskLevel === "HIGH" ? "bg-red-50 border-red-200"
                       : alert.riskLevel === "MEDIUM" ? "bg-yellow-50 border-yellow-200"
                         : "bg-green-50 border-green-200";
@@ -1301,6 +1411,11 @@ const Dashboard: React.FC<DashboardProps> = ({
                 🔄 {alertsLoading ? "Loading..." : "Refresh Alerts"}
               </button>
             </div>
+          )}
+
+          {/* Health Advisory Tab - Public/community users only */}
+          {activeTab === "advisory" && userRole === 'USER' && (
+            <HealthAdvisory />
           )}
 
           {/* CSV Upload Tab - Management users only */}
