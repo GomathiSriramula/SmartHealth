@@ -10,24 +10,14 @@ frontend/node_modules/
 
 # Logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# Environment variables
+# Environment
 .env
 **/.env
-.env.local
-.env.development
-.env.production
 
-# Build folders
+# Build
 dist/
 build/
-
-# OS files
-.DS_Store
-Thumbs.db
 
 # IDE
 .vscode/
