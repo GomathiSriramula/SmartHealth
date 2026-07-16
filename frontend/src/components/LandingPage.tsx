@@ -78,7 +78,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 <span className="text-blue-600"> Health Monitoring</span>
               </h1>
               <p className="text-xl text-gray-600 mb-8 leading-relaxed">
-                AI-powered community health surveillance for early detection of disease outbreaks. Collect case reports, analyze disease trends, and generate timely alerts to support public health response.
+                Community health surveillance for early detection of disease outbreaks. Collect case reports, analyze disease trends, and generate timely alerts to support public health response.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
@@ -129,9 +129,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Comprehensive Health Surveillance</h2>
-            <p className="text-xl text-gray-600">Powered by AI for real-time community protection</p>
+            <p className="text-xl text-gray-600">Real-time community protection through rapid case reporting</p>
           </div>
-          
+
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             <div className="bg-white rounded-xl p-8 shadow-lg hover:shadow-xl transition-shadow">
               <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-6">
@@ -139,8 +139,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">AI Disease Detection</h3>
-              <p className="text-gray-600">Machine learning algorithms analyze symptoms and patterns to predict potential outbreaks before they spread.</p>
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">Automated Risk Analysis</h3>
+              <p className="text-gray-600">Every case report is automatically screened against known symptom patterns and reporter-assessed severity to flag high-risk cases the moment they're submitted.</p>
             </div>
 
             <div className="bg-white rounded-xl p-8 shadow-lg hover:shadow-xl transition-shadow">
@@ -150,7 +150,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 </svg>
               </div>
               <h3 className="text-xl font-semibold text-gray-900 mb-4">Community Case Reporting</h3>
-             <p className="text-gray-600">Health workers, clinics, and community volunteers can quickly report suspected disease cases from their local areas. These reports help the system identify possible outbreaks early and support timely public health response.</p> 
+              <p className="text-gray-600">Health workers, clinics, and community volunteers can quickly report suspected disease cases from their local areas. These reports help the system identify possible outbreaks early and support timely public health response.</p>
             </div>
 
             <div className="bg-white rounded-xl p-8 shadow-lg hover:shadow-xl transition-shadow">
@@ -169,8 +169,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
                 </svg>
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">Mobile Reporting</h3>
-              <p className="text-gray-600">Multilingual mobile interface for ASHA workers and volunteers to report health incidents via SMS or app.</p>
+              <h3 className="text-xl font-semibold text-gray-900 mb-4">Rapid Case Reporting</h3>
+              <p className="text-gray-600">Health workers and operators can submit individual case reports or bulk-upload them via CSV for fast, large-scale data entry.</p>
             </div>
 
             <div className="bg-white rounded-xl p-8 shadow-lg hover:shadow-xl transition-shadow">
