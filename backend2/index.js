@@ -85,8 +85,10 @@ async function start() {
   }
 
   try {
-    const defaultAdmin = await ensureDefaultAdmin();
-    console.log(`Default admin ready: ${defaultAdmin.email}`);
+    const defaultAdmins = await ensureDefaultAdmin();
+    defaultAdmins.forEach((admin) => {
+      console.log(`Default admin ready: ${admin.email}`);
+    });
   } catch (e) {
     console.error("Failed to ensure default admin:", e.message);
   }

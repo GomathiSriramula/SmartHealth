@@ -347,5 +347,44 @@ router.get("/reports", authMiddleware, async (req, res) => {
       .json({ error: "Error fetching reports", detail: e.message });
   }
 });
+router.delete("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
+  try {
+    const report = await CaseReport.findById(req.params.id);
+    if (!report) return res.status(404).json({ error: "report not found" });
+
+    // Find predictions tied to this report
+    const predictions = await Prediction.find({ relatedReportId: report._id });
+    const predictionIds = predictions.map((p) => p._id);
+
+    // Resolve (not hard-delete) any alerts that were triggered by those predictions,
+    // so the audit trail survives but the UI stops showing them as active
+    let resolvedAlertsCount = 0;
+    if (predictionIds.length > 0) {
+      const Alert = require("../models/Alert");
+      const alertUpdateResult = await Alert.updateMany(
+        { "triggeringPredictions.predictionId": { $in: predictionIds }, status: "active" },
+        { status: "resolved", resolvedAt: new Date(), resolvedReason: "Source report deleted" }
+      );
+      resolvedAlertsCount = alertUpdateResult.modifiedCount;
+    }
+
+    // Delete the predictions themselves
+    const predDeleteResult = await Prediction.deleteMany({ relatedReportId: report._id });
+
+    // Finally delete the report
+    await CaseReport.deleteOne({ _id: report._id });
+
+    console.log(`🗑️  Deleted report ${report._id}: ${predDeleteResult.deletedCount} prediction(s) removed, ${resolvedAlertsCount} alert(s) resolved`);
+
+    return res.json({
+      success: true,
+      deletedPredictions: predDeleteResult.deletedCount,
+      resolvedAlerts: resolvedAlertsCount,
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error deleting report", detail: e.message });
+  }
+});
 
 module.exports = router;
