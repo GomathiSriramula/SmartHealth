@@ -2,25 +2,14 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { User } = require("../models");
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
-// List of default admins to ensure exist on startup.
-// Add or remove entries here to control how many default admins you have.
-const DEFAULT_ADMINS = [
-  {
-    email: "admin@health.in",
-    password: "Admin@123",
-    username: "telangana-admin",
-    adminLocation: { state: "Telangana" }
-  },
-  {
-    email: "sriramulagomathi987@gmail.com",
-    password: "Gomathi@123",
-    username: "telangana-admin-2",
-    adminLocation: { state: "Telangana" }
-  }
-];
+if (!JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET is not set. Add a strong random value to your .env (openssl rand -hex 32)."
+  );
+}
 
 function normalizeLocation(value) {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -76,7 +65,6 @@ async function createUser(username, password, email, options = {}) {
     passwordHash: hash
   };
 
-  // Add role if provided (otherwise schema default applies)
   if (options.role) {
     userObj.role = options.role;
   }
@@ -85,7 +73,6 @@ async function createUser(username, password, email, options = {}) {
     userObj.locations = options.locations;
   }
 
-  // Add adminLocation only when provided for ADMIN role
   if (options.role === 'ADMIN' && options.adminLocation) {
     userObj.adminLocation = options.adminLocation;
   }
@@ -94,25 +81,30 @@ async function createUser(username, password, email, options = {}) {
   return user;
 }
 
+// Only creates a bootstrap admin if DEFAULT_ADMIN_EMAIL/PASSWORD are set in
+// the environment. No credentials are hardcoded — this is intentionally a
+// no-op unless you opt in via .env, and you should remove those env vars
+// once the admin account exists.
 async function ensureDefaultAdmin() {
-  const createdAdmins = [];
+  const email = process.env.DEFAULT_ADMIN_EMAIL;
+  const password = process.env.DEFAULT_ADMIN_PASSWORD;
+  const username = process.env.DEFAULT_ADMIN_USERNAME || "admin";
 
-  for (const admin of DEFAULT_ADMINS) {
-    const existingAdmin = await User.findOne({ email: admin.email });
-    if (existingAdmin) {
-      createdAdmins.push(existingAdmin);
-      continue;
-    }
-
-    const newAdmin = await createUser(admin.username, admin.password, admin.email, {
-      role: 'ADMIN',
-      adminLocation: admin.adminLocation
-    });
-    console.log(`✅ Default admin created: ${admin.email}`);
-    createdAdmins.push(newAdmin);
+  if (!email || !password) {
+    return [];
   }
 
-  return createdAdmins;
+  const existingAdmin = await User.findOne({ email });
+  if (existingAdmin) {
+    return [existingAdmin];
+  }
+
+  const newAdmin = await createUser(username, password, email, {
+    role: 'ADMIN',
+    adminLocation: { state: process.env.DEFAULT_ADMIN_STATE || "" }
+  });
+  console.log(`✅ Default admin created: ${email} — remove DEFAULT_ADMIN_* from .env now`);
+  return [newAdmin];
 }
 
 async function verifyPassword(password, hash) {
@@ -136,17 +128,12 @@ function verifyToken(token) {
   }
 }
 
-// Express middleware: accepts Bearer token (preferred) OR x-api-key header (fallback only)
-// Extracts user info (id, username, role) from token and attaches any stored adminLocation metadata
 async function authMiddleware(req, res, next) {
-  const apiKey = process.env.API_KEY || "secret-key";
+  const apiKey = process.env.API_KEY;
   const headerKey = req.header("x-api-key");
   const auth = req.header("authorization");
 
-  // Only use the API key path when there's no Bearer token present.
-  // This prevents a client that sends BOTH headers (token + api key) from
-  // silently losing the real authenticated user context.
-  if (!auth && headerKey && headerKey === apiKey) {
+  if (!auth && apiKey && headerKey && headerKey === apiKey) {
     req.user = { type: "api_key" };
     return next();
   }
@@ -160,11 +147,9 @@ async function authMiddleware(req, res, next) {
   if (!payload) return res.status(401).json({ error: "Invalid token" });
 
   try {
-    // Fetch user from database to get complete profile including adminLocation
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: "User not found" });
 
-    // Attach core user info to req.user (always present)
     req.user = {
       id: user._id.toString(),
       username: user.username,
@@ -172,7 +157,6 @@ async function authMiddleware(req, res, next) {
       locations: user.locations || []
     };
 
-    // If user is ADMIN role, attach any stored adminLocation metadata
     if (req.user.role === 'ADMIN') {
       req.user.adminLocation = user.adminLocation || null;
     }
@@ -180,7 +164,7 @@ async function authMiddleware(req, res, next) {
     next();
   } catch (error) {
     console.error('Auth middleware error:', error.message);
-    return res.status(500).json({ error: "Authentication failed", detail: error.message });
+    return res.status(500).json({ error: "Authentication failed" });
   }
 }
 
