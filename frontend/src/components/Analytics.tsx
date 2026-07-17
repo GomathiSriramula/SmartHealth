@@ -19,6 +19,7 @@ import Alert from './Alert';
 
 interface AnalyticsProps {
   token: string;
+  userRole: string;
 }
 
 interface AnalyticsData {
@@ -87,6 +88,10 @@ interface AnalyticsData {
   }>;
   confidenceDistribution: Record<string, number>;
   modelVersions: Record<string, number>;
+  districtRiskSummary?: Array<{
+    location: string;
+    riskLevel: 'Critical' | 'Moderate';
+  }>;
 }
 
 const COLORS = {
@@ -98,7 +103,8 @@ const COLORS = {
   accent: '#ec4899',
 };
 
-const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
+const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
+  const isRestrictedUser = userRole === 'USER';
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -204,6 +210,23 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
   const showSymptoms = selectedView === 'all' || selectedView === 'symptoms';
   const showDemographics = selectedView === 'all' || selectedView === 'demographics';
   const showLocations = selectedView === 'all' || selectedView === 'locations';
+
+  // District-level risk list used for the restricted (USER) view of the
+  // "Recent" sections below. Prefer the server-computed districtRiskSummary
+  // (it's the authoritative, sanitized signal); fall back to deriving it
+  // client-side from recentHighRisk/topLocations if an older backend hasn't
+  // been updated yet.
+  const districtRiskList = data.districtRiskSummary && data.districtRiskSummary.length > 0
+    ? data.districtRiskSummary
+    : (() => {
+      const highRiskDistricts = new Set(
+        (data.recentHighRisk || []).map((alert) => alert.location)
+      );
+      return (data.topLocations || []).map((loc) => ({
+        location: loc.location,
+        riskLevel: (highRiskDistricts.has(loc.location) ? 'Critical' : 'Moderate') as 'Critical' | 'Moderate',
+      }));
+    })();
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -314,7 +337,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
               </svg>
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-2">Submitted by admins</p>
+          {!isRestrictedUser && (
+            <p className="text-xs text-gray-500 mt-2">Submitted by admins</p>
+          )}
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
@@ -581,67 +606,28 @@ const Analytics: React.FC<AnalyticsProps> = ({ token }) => {
         </div>
       )}
 
-      {/* Recent High Risk Alerts */}
-      {data.recentHighRisk.length > 0 && selectedView === 'all' && (
+      {/* District Risk Status — shown only for restricted (USER) accounts */}
+      {isRestrictedUser && districtRiskList.length > 0 && selectedView === 'all' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">🚨 Recent High-Risk Alerts</h2>
-          <div className="space-y-4">
-            {data.recentHighRisk.map((alert) => (
-              <div key={alert.id} className="border-l-4 border-red-500 bg-red-50 p-4 rounded-r-lg hover:bg-red-100 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <span className="font-semibold text-gray-900">{alert.type}</span>
-                      <span className="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full font-medium">
-                        {alert.confidence}% confidence
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-700 mb-2">{alert.details.substring(0, 150)}...</p>
-                    <div className="flex items-center space-x-4 text-xs text-gray-500">
-                      <span>📍 {alert.location}</span>
-                      <span>📅 {new Date(alert.date).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Recent Case Reports */}
-      {data.recentCaseReportsList && data.recentCaseReportsList.length > 0 && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mt-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 Recent Case Reports from Admins</h2>
-          <div className="space-y-4">
-            {data.recentCaseReportsList.map((report) => (
-              <div key={report.id} className="border-l-4 border-blue-500 bg-blue-50 p-4 rounded-r-lg hover:bg-blue-100 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-2 flex-wrap">
-                      <span className="font-semibold text-gray-900">
-                        Patient: {report.sex === 'M' ? '👨' : report.sex === 'F' ? '👩' : '👤'} Age {report.patient_age}
-                      </span>
-                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
-                        {report.reporter_type}
-                      </span>
-                      <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
-                        ID: {report.reporter_id}
-                      </span>
-                    </div>
-                    <div className="mb-2">
-                      <span className="text-sm font-medium text-gray-700">Symptoms: </span>
-                      <span className="text-sm text-gray-600">
-                        {report.symptoms.length > 0 ? report.symptoms.join(', ') : 'None reported'}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-4 text-xs text-gray-500 flex-wrap">
-                      <span>📍 {report.location}</span>
-                      <span>🌐 Lat: {typeof report.lat === 'number' ? report.lat.toFixed(4) : 'N/A'}, Lng: {typeof report.lng === 'number' ? report.lng.toFixed(4) : 'N/A'}</span>
-                      <span>📅 {new Date(report.reported_at).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 District Risk Status</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {districtRiskList.map((district, index) => (
+              <div
+                key={index}
+                className={`flex items-center justify-between p-4 rounded-lg border ${district.riskLevel === 'Critical'
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-yellow-50 border-yellow-200'
+                  }`}
+              >
+                <span className="font-medium text-gray-900">{district.location}</span>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-semibold ${district.riskLevel === 'Critical'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-yellow-100 text-yellow-700'
+                    }`}
+                >
+                  {district.riskLevel === 'Critical' ? '🔴 Critical' : '🟡 Moderate'}
+                </span>
               </div>
             ))}
           </div>

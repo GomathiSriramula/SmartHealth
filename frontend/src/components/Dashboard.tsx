@@ -80,9 +80,9 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  // Set default tab based on role - public users start with alerts, the management view starts on the admin workspace
+  // Set default tab based on role - public users start on health advisory, the management view starts on the admin workspace
   const [activeTab, setActiveTab] = useState(
-    userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'alerts' : 'overview'
+    userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'advisory' : 'overview'
   );
   const [formData, setFormData] = useState({
     reporter_type: "",
@@ -106,7 +106,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [token]);
 
   useEffect(() => {
-    setActiveTab(userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'alerts' : 'overview');
+    setActiveTab(userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'advisory' : 'overview');
   }, [userRole]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -518,25 +518,28 @@ const Dashboard: React.FC<DashboardProps> = ({
                 }
               />
             )}
-            <TabButton
-              id="alerts"
-              label="Alerts"
-              icon={
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
-                  ></path>
-                </svg>
-              }
-            />
+            {/* Alerts - Management users only */}
+            {(userRole === 'ADMIN' || userRole === 'OPERATOR') && (
+              <TabButton
+                id="alerts"
+                label="Alerts"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
             <TabButton
               id="map"
               label="Outbreak Map"
@@ -1251,8 +1254,8 @@ const Dashboard: React.FC<DashboardProps> = ({
             </div>
           )}
 
-          {/* Alerts Tab */}
-          {activeTab === "alerts" && (
+          {/* Alerts Tab - Management users only */}
+          {activeTab === "alerts" && (userRole === 'ADMIN' || userRole === 'OPERATOR') && (
             <div className="space-y-6">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900">
@@ -1454,7 +1457,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
           {/* Analytics Tab */}
           {activeTab === "analytics" && (
-            <Analytics token={token} />
+            <Analytics token={token} userRole={userRole} />
           )}
 
           {/* Outbreak Map Tab */}

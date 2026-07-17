@@ -639,6 +639,30 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       }
     });
 
+    // Per-district risk summary — location name + a coarse Critical/Moderate
+    // label only. This is the ONLY case-level signal sent to restricted
+    // (USER role) clients; it deliberately carries no patient data, exact
+    // coordinates, confidence scores, or free-text case details.
+    const locationRiskMap = {};
+    predictions.forEach(p => {
+      if (!p.location) return;
+      const risk = (p.riskLevel || 'low').toLowerCase();
+      if (!locationRiskMap[p.location]) locationRiskMap[p.location] = 'moderate';
+      if (risk === 'high') locationRiskMap[p.location] = 'critical';
+    });
+    caseReports.forEach(r => {
+      if (!r.location) return;
+      if (!locationRiskMap[r.location]) locationRiskMap[r.location] = 'moderate';
+    });
+    const districtRiskSummary = Object.entries(locationRiskMap).map(([location, risk]) => ({
+      location,
+      riskLevel: risk === 'critical' ? 'Critical' : 'Moderate'
+    }));
+
+    // USER role gets aggregate/chart data (counts, distributions, trends —
+    // nothing tied to an individual) but never the per-case detail arrays.
+    const isRestrictedUser = (req.user?.role || 'USER') === 'USER';
+
     return res.json({
       summary: {
         totalPredictions,
@@ -659,9 +683,10 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       reporterTypes,
       timeSeriesData,
       topLocations,
-      geoClusters,
-      recentHighRisk,
-      recentCaseReportsList: recentCaseReports,
+      geoClusters: isRestrictedUser ? [] : geoClusters,
+      recentHighRisk: isRestrictedUser ? [] : recentHighRisk,
+      recentCaseReportsList: isRestrictedUser ? [] : recentCaseReports,
+      districtRiskSummary,
       confidenceDistribution: confidenceRanges,
       modelVersions
     });
