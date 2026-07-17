@@ -417,6 +417,46 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
   }).length;
 
+  // Extra insights for the Overview redesign
+  const moderateCases = reports.filter(
+    (r: Report) => (r.symptoms ? r.symptoms.length : 0) === 1 || (r.symptoms ? r.symptoms.length : 0) === 2
+  ).length;
+  const mildCases = totalReports - criticalCases - moderateCases;
+
+  const getSeverity = (report: Report): { label: string; dot: string; badge: string } => {
+    const count = report.symptoms ? report.symptoms.length : 0;
+    if (count >= 3) return { label: "Critical", dot: "bg-red-500", badge: "bg-red-100 text-red-700" };
+    if (count >= 1) return { label: "Moderate", dot: "bg-yellow-500", badge: "bg-yellow-100 text-yellow-700" };
+    return { label: "Mild", dot: "bg-green-500", badge: "bg-green-100 text-green-700" };
+  };
+
+  const topSymptom = (() => {
+    const counts: Record<string, number> = {};
+    reports.forEach((r: Report) => {
+      (r.symptoms || []).forEach((s) => {
+        counts[s] = (counts[s] || 0) + 1;
+      });
+    });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    return sorted.length > 0 ? sorted[0][0] : "—";
+  })();
+
+  const timeAgo = (dateStr: string): string => {
+    try {
+      const diffMs = Date.now() - new Date(dateStr).getTime();
+      const mins = Math.floor(diffMs / 60000);
+      if (mins < 1) return "just now";
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      const days = Math.floor(hours / 24);
+      if (days < 7) return `${days}d ago`;
+      return new Date(dateStr).toLocaleDateString();
+    } catch {
+      return "";
+    }
+  };
+
   const TabButton = ({
     id,
     label,
@@ -653,35 +693,40 @@ const Dashboard: React.FC<DashboardProps> = ({
           {/* Overview Tab */}
           {activeTab === "overview" && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                    Health Monitoring Overview
-                  </h1>
-                  <p className="text-gray-600">
-                    Real-time surveillance for water-borne disease prevention
-                  </p>
-                </div>
-                <button
-                  onClick={() => fetchReports(true)}
-                  disabled={loading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg
-                    className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+              {/* Hero header */}
+              <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-600 to-indigo-700 p-8 text-white shadow-lg">
+                <div className="absolute -right-10 -top-10 w-56 h-56 rounded-full bg-white/10"></div>
+                <div className="absolute -right-4 bottom-0 w-32 h-32 rounded-full bg-white/10"></div>
+                <div className="relative flex items-center justify-between flex-wrap gap-4">
+                  <div>
+                    <h1 className="text-3xl font-bold mb-2">
+                      Health Monitoring Overview
+                    </h1>
+                    <p className="text-blue-100">
+                      Real-time surveillance for water-borne disease prevention
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => fetchReports(true)}
+                    disabled={loading}
+                    className="px-4 py-2 bg-white text-blue-700 rounded-lg font-medium hover:bg-blue-50 transition-colors flex items-center space-x-2 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    ></path>
-                  </svg>
-                  <span>{loading ? 'Refreshing...' : 'Refresh Data'}</span>
-                </button>
+                    <svg
+                      className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      ></path>
+                    </svg>
+                    <span>{loading ? 'Refreshing...' : 'Refresh Data'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* Stats Cards */}
@@ -775,12 +820,84 @@ const Dashboard: React.FC<DashboardProps> = ({
                 />
               </div>
 
+              {/* Severity Breakdown + Quick Insights */}
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Severity Breakdown
+                  </h2>
+                  {totalReports === 0 ? (
+                    <p className="text-sm text-gray-500">No reports yet to break down.</p>
+                  ) : (
+                    <>
+                      <div className="w-full h-3 rounded-full overflow-hidden bg-gray-100 flex">
+                        <div
+                          className="bg-red-500 h-full"
+                          style={{ width: `${(criticalCases / totalReports) * 100}%` }}
+                          title={`Critical: ${criticalCases}`}
+                        ></div>
+                        <div
+                          className="bg-yellow-400 h-full"
+                          style={{ width: `${(moderateCases / totalReports) * 100}%` }}
+                          title={`Moderate: ${moderateCases}`}
+                        ></div>
+                        <div
+                          className="bg-green-500 h-full"
+                          style={{ width: `${(mildCases / totalReports) * 100}%` }}
+                          title={`Mild: ${mildCases}`}
+                        ></div>
+                      </div>
+                      <div className="flex items-center flex-wrap gap-x-6 gap-y-2 mt-4 text-sm">
+                        <span className="flex items-center gap-2 text-gray-700">
+                          <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                          Critical <span className="text-gray-400">({criticalCases})</span>
+                        </span>
+                        <span className="flex items-center gap-2 text-gray-700">
+                          <span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
+                          Moderate <span className="text-gray-400">({moderateCases})</span>
+                        </span>
+                        <span className="flex items-center gap-2 text-gray-700">
+                          <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                          Mild <span className="text-gray-400">({mildCases})</span>
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                    Quick Insight
+                  </h2>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Most reported symptom</p>
+                      <p className="text-base font-medium text-gray-900 mt-1">{topSymptom}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Critical share</p>
+                      <p className="text-base font-medium text-gray-900 mt-1">
+                        {totalReports > 0 ? `${Math.round((criticalCases / totalReports) * 100)}%` : '0%'} of all reports
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Recent Activity */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-                <div className="p-6 border-b border-gray-100">
+                <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                   <h2 className="text-xl font-semibold text-gray-900">
                     Recent Reports
                   </h2>
+                  {reports.length > 0 && (
+                    <button
+                      onClick={() => setActiveTab("reports")}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                    >
+                      View all →
+                    </button>
+                  )}
                 </div>
                 <div className="p-6">
                   {loading ? (
@@ -806,39 +923,62 @@ const Dashboard: React.FC<DashboardProps> = ({
                       <p>No reports available</p>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {reports.slice(0, 5).map((report: Report, index: number) => (
-                        <div
-                          key={report._id || report.id || `report-${index}`}
-                          className="flex items-center justify-between p-4 bg-gray-50 rounded-lg"
-                        >
-                          <div className="flex items-center space-x-4">
-                            <div
-                              className={`w-3 h-3 rounded-full ${(report.symptoms || []).length >= 3
-                                ? "bg-red-400"
-                                : "bg-yellow-400"
-                                }`}
-                            ></div>
-                            <div>
-                              <p className="font-medium text-gray-900">
-                                {report.sex}, {report.patient_age} years
+                    <div className="space-y-3">
+                      {reports.slice(0, 5).map((report: Report, index: number) => {
+                        const severity = getSeverity(report);
+                        const visibleSymptoms = (report.symptoms || []).slice(0, 3);
+                        const extraSymptoms = (report.symptoms || []).length - visibleSymptoms.length;
+                        return (
+                          <div
+                            key={report._id || report.id || `report-${index}`}
+                            className="flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            <div className="flex items-center space-x-4 min-w-0">
+                              <div
+                                className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${severity.dot}`}
+                              >
+                                {report.sex === 'M' ? '♂' : report.sex === 'F' ? '♀' : '•'}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-medium text-gray-900">
+                                    {report.sex}, {report.patient_age} years
+                                  </p>
+                                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${severity.badge}`}>
+                                    {severity.label}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  {visibleSymptoms.length > 0 ? (
+                                    visibleSymptoms.map((symptom, i) => (
+                                      <span
+                                        key={i}
+                                        className="px-2 py-0.5 rounded-full bg-white border border-gray-200 text-xs text-gray-600"
+                                      >
+                                        {symptom}
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-xs text-gray-400">No symptoms reported</span>
+                                  )}
+                                  {extraSymptoms > 0 && (
+                                    <span className="text-xs text-gray-400">+{extraSymptoms} more</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">{report.reporter_type}</p>
+                              </div>
+                            </div>
+                            <div className="text-right flex-shrink-0 ml-4">
+                              <p className="text-sm text-gray-500">
+                                {timeAgo(report.created_at)}
                               </p>
-                              <p className="text-sm text-gray-600">
-                                {report.symptoms.join(", ")} •{" "}
-                                {report.reporter_type}
+                              <p className="text-xs text-gray-400">
+                                {new Date(report.created_at).toLocaleDateString()}
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm text-gray-500">
-                              {new Date(report.created_at).toLocaleDateString()}
-                            </p>
-                            <p className="text-xs text-gray-400">
-                              {new Date(report.created_at).toLocaleTimeString()}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
