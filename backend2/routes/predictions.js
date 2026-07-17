@@ -4,7 +4,6 @@ const mongoose = require("mongoose");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { Prediction, CaseReport } = require("../models");
 const { checkForAlerts } = require("../services/alertChecker");
-const { notifyAlertCreation } = require("../utils/mailer");
 const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
@@ -170,22 +169,13 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
         alertResult = await checkForAlerts(predictionForAlert);
         console.log(`📡 checkForAlerts returned:`, alertResult);
 
-        // Email is sent HERE ONLY — via notifyAlertCreation — when a brand
-        // new alert is created. notifyUsersOfPrediction() used to also fire
-        // for this same case, and both functions resolve to the exact same
-        // admin/operator recipient list (getAutomaticAlertRecipients), so
-        // every new alert was sending two separate emails to the same
-        // people. This route now sends exactly one.
+        // 🔑 checkForAlerts() itself sends the "alert created" email
+        // (see alertChecker.js) and returns the outcome on `notification`.
+        // This route must NOT send its own follow-up email — doing so used
+        // to double-send to the same admins/operator every time.
         if (alertResult && alertResult.action === 'created' && alertResult.alert) {
           console.log(`🚨 [Alert] CREATED: ${alertResult.message}`);
-
-          try {
-            alertNotifyResult = await notifyAlertCreation(alertResult.alert);
-            console.log(`📧 [Alert] Notification sent: ${alertNotifyResult.message}`);
-          } catch (notifyError) {
-            console.error(`⚠️  [Alert] Notification failed (non-blocking): ${notifyError.message}`);
-            alertNotifyResult = { success: false, error: notifyError.message };
-          }
+          alertNotifyResult = alertResult.notification || { success: false, message: 'No notification result returned' };
         } else if (alertResult && alertResult.action === 'resolved' && alertResult.alert) {
           console.log(`✅ [Alert] RESOLVED: ${alertResult.message}`);
         } else if (alertResult) {
@@ -525,7 +515,7 @@ router.get("/predictions/:id", authMiddleware, async (req, res) => {
  * POST /predictions/:id/notify
  * Resend email notification for a specific prediction
  */
-router.post("/predictions/:id/notify", authMiddleware, async (req, res) => {
+router.post("/predictions/:id/notify", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     const { id } = req.params;
 

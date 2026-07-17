@@ -2,7 +2,6 @@ const express = require("express");
 const router = express.Router();
 const { CaseReport, Prediction } = require("../models");
 const publish = require("../utils/publisher");
-const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { checkForAlerts } = require("../services/alertChecker");
 
 const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict, operatorMatchesDistrict } = require("../utils/auth");
@@ -223,17 +222,17 @@ async function createPredictionAndNotify(report, analysis) {
       console.error(`⚠️  [Case Report Alert] Alert check failed (non-blocking):`, alertError.message);
     }
 
-    // Send email notification ONLY when a NEW alert was just created — not
-    // for every HIGH-risk report. Previously this fired unconditionally,
-    // sending a duplicate email each time a report came in for an area that
-    // already had an active alert.
+    // 🔑 checkForAlerts() itself sends the "alert created" email (see
+    // alertChecker.js) and returns the outcome on `notification`. This
+    // function must NOT send its own follow-up email — doing so used to
+    // double-send (a differently-styled "High Risk Detected" email on top
+    // of checkForAlerts()'s own "Outbreak Alert" email) to the same
+    // admins/operator every time a report triggered a new alert.
     let notificationResult = { success: false, count: 0, skipped: true, message: 'No new alert — notification skipped' };
     if (alertResult && alertResult.action === 'created') {
-      console.log(`📧 [Case Report Prediction] Sending email alerts for newly created alert...`);
-      notificationResult = await notifyUsersOfPrediction(prediction);
-
-      if (notificationResult.success && notificationResult.count > 0) {
-        console.log(`✅ [Case Report Prediction] Email alerts sent to ${notificationResult.count} users`);
+      notificationResult = alertResult.notification || { success: false, message: 'No notification result returned' };
+      if (notificationResult.success) {
+        console.log(`✅ [Case Report Prediction] Email alerts sent for newly created alert`);
       } else {
         console.log(`⚠️  [Case Report Prediction] Email notification result: ${notificationResult.message}`);
       }

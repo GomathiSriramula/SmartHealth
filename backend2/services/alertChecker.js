@@ -142,9 +142,15 @@ async function checkForAlerts(prediction) {
 
       console.log(`🚨 [Alert Creator] NEW ALERT CREATED: ${newAlert._id} for location: ${location}`);
 
-      // Send email notification to health officials (non-blocking)
+      // 🔑 This is the ONLY place that emails about a newly-created alert.
+      // Callers (predictions.js, reports.js, uploads.js) must NOT send their
+      // own follow-up email when action === 'created' — they should read
+      // the `notification` field on this return value instead. Sending
+      // again in the caller used to cause every auto-created alert to email
+      // admins/operator 2-3 times (once here, once per caller).
+      let notificationResult;
       try {
-        const notificationResult = await notifyAlertCreation(newAlert);
+        notificationResult = await notifyAlertCreation(newAlert);
         if (notificationResult.success) {
           console.log(`✅ [Alert Notification] ${notificationResult.message}`);
         } else {
@@ -152,12 +158,27 @@ async function checkForAlerts(prediction) {
         }
       } catch (notificationError) {
         console.error(`⚠️  [Alert Notification] Error (non-blocking): ${notificationError.message}`);
+        notificationResult = { success: false, message: notificationError.message };
       }
+
+      // Persist the outcome — mailer.js's notifyAlertCreation only READS
+      // alert.notificationSent for its own idempotency guard, it never WRITES
+      // it, so without this the flag stays false in the DB forever and the
+      // guard never actually blocks anything (this was the root cause of the
+      // duplicate sends). This also lets the manual "Notify" button correctly
+      // see the alert as already-notified once this succeeds.
+      await markAlertNotified(
+        newAlert._id,
+        notificationResult.success,
+        notificationResult.success ? null : (notificationResult.message || notificationResult.error || 'Unknown error')
+      );
+      newAlert.notificationSent = notificationResult.success;
 
       return {
         alert: newAlert,
         action: 'created',
         message: `Alert created for ${location}: HIGH risk prediction detected`,
+        notification: notificationResult,
       };
     }
 
@@ -229,9 +250,15 @@ async function checkForAlerts(prediction) {
 
       console.log(`🚨 [Alert Creator] NEW ALERT CREATED: ${newAlert._id} for location: ${location}`);
 
-      // STEP 4: Send email notification to health officials
+      // 🔑 This is the ONLY place that emails about a newly-created alert.
+      // Callers (predictions.js, reports.js, uploads.js) must NOT send their
+      // own follow-up email when action === 'created' — they should read
+      // the `notification` field on this return value instead. Sending
+      // again in the caller used to cause every auto-created alert to email
+      // admins/operator 2-3 times (once here, once per caller).
+      let notificationResult;
       try {
-        const notificationResult = await notifyAlertCreation(newAlert);
+        notificationResult = await notifyAlertCreation(newAlert);
         if (notificationResult.success) {
           console.log(
             `✅ [Alert Notification] ${notificationResult.message}`
@@ -246,12 +273,23 @@ async function checkForAlerts(prediction) {
         console.error(
           `⚠️  [Alert Notification] Error (non-blocking): ${notificationError.message}`
         );
+        notificationResult = { success: false, message: notificationError.message };
       }
+
+      // Persist the outcome — see comment in the threshold<=1 branch above
+      // for why this write is required (mailer.js never does it itself).
+      await markAlertNotified(
+        newAlert._id,
+        notificationResult.success,
+        notificationResult.success ? null : (notificationResult.message || notificationResult.error || 'Unknown error')
+      );
+      newAlert.notificationSent = notificationResult.success;
 
       return {
         alert: newAlert,
         action: 'created',
         message: `Alert created for ${location}: ${ALERT_THRESHOLD} consecutive HIGH predictions`,
+        notification: notificationResult,
       };
     }
 

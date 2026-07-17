@@ -452,6 +452,16 @@ const Dashboard: React.FC<DashboardProps> = ({
   // Submit new report
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ADMIN has no assigned district, so the field above is a free-text
+    // entry rather than an auto-fill — don't let it go out empty, since
+    // the backend silently falls back to location "Unknown" and no
+    // operator ever gets notified for a district that doesn't exist.
+    if (userRole === 'ADMIN' && !district.trim()) {
+      setMessage("❌ Please enter the district this report is for.");
+      return;
+    }
+
     setSubmitting(true);
     setMessage(""); // Clear any previous messages
 
@@ -460,7 +470,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         ...formData,
         reporter_id: username, // 🔑 Always use logged-in username as reporter_id
         patient_age: Number(formData.patient_age),
-        location: district, // 🔑 Auto-filled from the logged-in operator's account
+        location: district, // 🔑 Auto-filled for OPERATOR, manually entered for ADMIN (see District field above)
         reported_at: new Date().toISOString(), // 🔑 Auto-filled with the current date/time
       };
 
@@ -1633,19 +1643,37 @@ const Dashboard: React.FC<DashboardProps> = ({
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        District
+                        District {userRole === 'ADMIN' && <span className="text-red-500">*</span>}
                       </label>
-                      <input
-                        type="text"
-                        value={district}
-                        readOnly
-                        disabled
-                        className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
-                        placeholder="Auto-filled from your operator account"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        This is automatically set to your assigned district
-                      </p>
+                      {userRole === 'ADMIN' ? (
+                        <>
+                          <input
+                            type="text"
+                            value={district}
+                            onChange={(e) => setDistrict(e.target.value)}
+                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Enter the district this report is for"
+                            required
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            Admin accounts aren't tied to a single district — enter which district this report belongs to.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={district}
+                            readOnly
+                            disabled
+                            className="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 cursor-not-allowed"
+                            placeholder="Auto-filled from your operator account"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">
+                            This is automatically set to your assigned district
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     <div>

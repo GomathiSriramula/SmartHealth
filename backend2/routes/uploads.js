@@ -7,8 +7,6 @@ const path = require("path");
 const { CaseReport, Prediction } = require("../models");
 const { authMiddleware, requireRole, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
-const { notifyUsersOfPrediction } = require("../utils/mailer");
-const { notifyAlertCreation } = require("../utils/mailer");
 const { logAudit } = require("../utils/auditLogger");
 const { checkForAlerts } = require("../services/alertChecker");
 
@@ -167,14 +165,18 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
         alertResult = await checkForAlerts(predictionForAlert);
         console.log(`📡 checkForAlerts returned:`, alertResult);
 
+        // 🔑 checkForAlerts() itself sends the "alert created" email (see
+        // alertChecker.js) and returns the outcome on `notification`. This
+        // loop must NOT send its own follow-up email — it previously sent
+        // up to two more (notifyAlertCreation + notifyUsersOfPrediction) on
+        // top of the one checkForAlerts() already sent, for a total of 3
+        // identical alerts per newly-created row.
         if (alertResult && alertResult.action === "created" && alertResult.alert) {
           alertsCreated++;
           console.log(`🚨 [CSV Alert] CREATED: ${alertResult.message}`);
-          try {
-            const notifyResult = await notifyAlertCreation(alertResult.alert);
-            console.log(`📧 [CSV Alert] Notification sent: ${notifyResult.message}`);
-          } catch (notifyError) {
-            console.error(`⚠️  [CSV Alert] Notification failed (non-blocking): ${notifyError.message}`);
+          notificationResult = alertResult.notification || { success: false, message: 'No notification result returned' };
+          if (notificationResult.success && notificationResult.count > 0) {
+            notificationsSent += notificationResult.count;
           }
         } else if (alertResult && alertResult.action === "resolved" && alertResult.alert) {
           console.log(`✅ [CSV Alert] RESOLVED: ${alertResult.message}`);
@@ -184,25 +186,6 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
       } catch (alertError) {
         console.error(`⚠️  [CSV Alert] Check failed (non-blocking): ${alertError.message}`);
         console.error(alertError);
-      }
-
-      // Email notification only when a NEW alert was just created for this
-      // row — not for every HIGH-risk row. Previously this fired whenever
-      // riskLevel === 'high' regardless of alertResult.action, so a batch of
-      // rows for the same already-alerted area sent a flood of duplicate
-      // emails.
-      if (alertResult && alertResult.action === 'created') {
-        try {
-          notificationResult = await notifyUsersOfPrediction(prediction);
-          if (notificationResult.success && notificationResult.count > 0) {
-            notificationsSent += notificationResult.count;
-            console.log(`✅ [CSV Row] Email alerts sent to ${notificationResult.count} users`);
-          }
-        } catch (notifyErr) {
-          console.error(`⚠️  [CSV Row] Email notification failed (non-blocking): ${notifyErr.message}`);
-        }
-      } else {
-        console.log(`📭 [CSV Row] Skipping email — ${alertResult ? `alert action was "${alertResult.action}"` : 'no alert result'}`);
       }
     }
 
