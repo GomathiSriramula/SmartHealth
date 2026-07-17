@@ -171,8 +171,16 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
       if (!res.ok) throw new Error(`Error: ${res.status}`);
       const data = await res.json();
-      console.log('📊 Reports fetched:', data.length, 'reports');
-      setReports(data);
+      // Defensive newest-first sort on top of the backend's own sort (see
+      // GET /reports in reports.js). The Overview's "Recent Reports" card
+      // takes the first 5 entries and assumes newest-first ordering, so
+      // this guards against that assumption silently breaking again.
+      const sortedData = [...data].sort(
+        (a: Report, b: Report) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      console.log('📊 Reports fetched:', sortedData.length, 'reports');
+      setReports(sortedData);
       console.log('📊 Reports state updated. Total count:', data.length);
     } catch (err) {
       console.error('❌ Error fetching reports:', err);

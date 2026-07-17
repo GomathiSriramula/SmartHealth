@@ -371,7 +371,20 @@ router.get("/reports", authMiddleware, async (req, res) => {
     if (req.query.reporter_id) {
       filter.reporter_id = req.query.reporter_id;
     }
-    const docs = await CaseReport.find(filter).skip(skip).limit(limit).lean();
+    // 🔑 FIX: sort newest-first by created_at. Without an explicit sort,
+    // Mongo does not guarantee any particular order — it's typically close
+    // to insertion order in practice, but that's not reliable, and it's
+    // definitely not "most recent first". The frontend relies on that
+    // ordering in two places: Dashboard's Overview "Recent Reports" card
+    // takes reports.slice(0, 5) assuming the array is already newest-first,
+    // and the Reports tab table lists everything in whatever order it's
+    // given. Without this sort, a freshly submitted or CSV-uploaded report
+    // could land anywhere in the response and never show up as "recent".
+    const docs = await CaseReport.find(filter)
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
     return res.json(docs);
   } catch (e) {
     console.error(e);
