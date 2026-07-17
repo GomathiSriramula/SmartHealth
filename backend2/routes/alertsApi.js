@@ -3,6 +3,8 @@ const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
 const { authMiddleware, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
 const { getManualNotificationRecipients } = require('../utils/notificationRecipients');
+const { getDistrictCoordinates } = require('../utils/districtCoordinates');
+const { CaseReport } = require('../models');
 
 const router = express.Router();
 
@@ -317,6 +319,141 @@ router.get('/alerts/stats/summary', authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to get statistics',
+      detail: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/alerts/map/locations
+ * Outbreak locations for the interactive map.
+ *
+ * Role-based access control (same district scoping as GET /api/alerts):
+ * - USER:     all PUBLIC outbreak locations, active only, minimal fields
+ * - OPERATOR: only locations within their assigned district
+ * - ADMIN:    all locations; may pass ?status=all to include resolved ones
+ *
+ * Privacy: markers are placed at DISTRICT-LEVEL coordinates only. This
+ * endpoint never returns individual case reports, patient age/sex/symptoms,
+ * reporter identity, or exact case coordinates — only an aggregated
+ * outbreak status per district.
+ */
+router.get('/alerts/map/locations', authMiddleware, async (req, res) => {
+  try {
+    const userRole = req.user.role || 'USER';
+
+    // District scoping — identical rule used everywhere else in this file:
+    // {} for USER/ADMIN (no restriction), locked to own district for OPERATOR.
+    const filter = buildDistrictFilter(req.user);
+
+    // The public only ever sees CURRENT outbreaks. ADMIN/OPERATOR may opt
+    // into seeing resolved ones too via ?status=all.
+    const requestedStatus = (req.query.status || 'active').toLowerCase();
+    if (userRole === 'USER') {
+      filter.status = 'active';
+    } else if (requestedStatus !== 'all') {
+      filter.status = requestedStatus;
+    }
+
+    const alerts = await Alert.find(filter).sort({ createdAt: -1 }).lean();
+
+    // Group by district — a district can have more than one alert record
+    // (e.g. one resolved, one currently active).
+    const byLocation = new Map();
+    const riskRank = { LOW: 0, MEDIUM: 1, HIGH: 2 };
+
+    for (const alert of alerts) {
+      const key = (alert.location || '').trim().toLowerCase();
+      if (!key) continue;
+
+      if (!byLocation.has(key)) {
+        byLocation.set(key, {
+          location: alert.location,
+          riskLevel: alert.riskLevel || 'LOW',
+          status: alert.status,
+          alertCount: 0,
+          activeCount: 0,
+          resolvedCount: 0,
+          lastUpdated: alert.createdAt,
+          reasons: [],
+        });
+      }
+
+      const entry = byLocation.get(key);
+      entry.alertCount += 1;
+      if (alert.status === 'active') entry.activeCount += 1;
+      if (alert.status === 'resolved') entry.resolvedCount += 1;
+
+      // Worst risk level wins for the marker
+      if ((riskRank[alert.riskLevel] ?? 0) > (riskRank[entry.riskLevel] ?? 0)) {
+        entry.riskLevel = alert.riskLevel;
+      }
+      // If any alert for this district is active, the district reads as active
+      if (alert.status === 'active') entry.status = 'active';
+
+      if (alert.createdAt && new Date(alert.createdAt) > new Date(entry.lastUpdated)) {
+        entry.lastUpdated = alert.createdAt;
+      }
+
+      if (alert.reason) entry.reasons.push(alert.reason);
+    }
+
+    // Resolve coordinates for each district, then build the final payload.
+    const locations = [];
+    for (const entry of byLocation.values()) {
+      let coords = getDistrictCoordinates(entry.location);
+
+      // Fallback: average of the underlying case reports' coordinates for
+      // this district. Only an aggregate number is computed/returned —
+      // no individual report is ever read out here.
+      if (!coords) {
+        const districtRegex = new RegExp(
+          `^${entry.location.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+          'i'
+        );
+        const agg = await CaseReport.aggregate([
+          { $match: { location: districtRegex, lat: { $exists: true, $ne: null }, lng: { $exists: true, $ne: null } } },
+          { $group: { _id: null, lat: { $avg: '$lat' }, lng: { $avg: '$lng' } } },
+        ]);
+        if (agg.length > 0 && agg[0].lat != null && agg[0].lng != null) {
+          coords = { lat: agg[0].lat, lng: agg[0].lng };
+        }
+      }
+
+      // Skip districts we truly can't place on the map rather than guessing
+      if (!coords) continue;
+
+      const base = {
+        location: entry.location,
+        riskLevel: entry.riskLevel,
+        status: entry.status,
+        alertCount: entry.alertCount,
+        lastUpdated: entry.lastUpdated,
+        lat: coords.lat,
+        lng: coords.lng,
+      };
+
+      // Extra operational detail only for management roles — never for USER
+      if (userRole === 'ADMIN' || userRole === 'OPERATOR') {
+        base.activeCount = entry.activeCount;
+        base.resolvedCount = entry.resolvedCount;
+        base.reasons = entry.reasons.slice(0, 5);
+      }
+
+      locations.push(base);
+    }
+
+    return res.json({
+      success: true,
+      userRole,
+      count: locations.length,
+      locations,
+    });
+  } catch (error) {
+    console.error('[AlertsAPI] Error getting map locations:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to get outbreak map locations',
       detail: error.message,
     });
   }
