@@ -5,7 +5,7 @@ const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { Prediction, CaseReport } = require("../models");
 const { checkForAlerts } = require("../services/alertChecker");
 const { notifyAlertCreation } = require("../utils/mailer");
-const { authMiddleware, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
+const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
 
@@ -20,6 +20,57 @@ function toLocalDateString(date) {
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Location strings come from free-form operator input ("Peddapalli",
+ * "peddapalli", " Peddapalli ", etc.) and were previously grouped by exact
+ * string match, so the same district could show up as several separate
+ * "Top Affected Locations" entries differing only in case/whitespace.
+ *
+ * normalizeLocationKey() gives a case/whitespace-insensitive grouping key.
+ * titleCaseLocation() gives a consistent display label for that group,
+ * regardless of which casing happened to be typed in first.
+ */
+function normalizeLocationKey(location) {
+  return typeof location === "string" ? location.trim().toLowerCase() : "";
+}
+
+function titleCaseLocation(location) {
+  return location
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+// Some older prediction records were created with a "Coordinates: (undefined,
+// undefined)" placeholder location (see reports.js) when a report had
+// neither a district nor valid lat/lng. That string isn't a real place —
+// exclude it from location aggregates rather than showing it as a hotspot.
+function isPlaceholderLocation(location) {
+  return /^coordinates:\s*\(\s*undefined\s*,\s*undefined\s*\)$/i.test(location.trim());
+}
+
+/**
+ * Adds one occurrence of `rawLocation` into an aggregation map keyed by its
+ * normalized form, tracking a display label. Skips empty/placeholder values.
+ * `bucketMap` entries look like: { label: string, ...extra }
+ */
+function addToLocationBucket(bucketMap, rawLocation, onCreate, onExisting) {
+  if (typeof rawLocation !== "string") return;
+  const trimmed = rawLocation.trim();
+  if (!trimmed || isPlaceholderLocation(trimmed)) return;
+
+  const key = normalizeLocationKey(trimmed);
+  if (!bucketMap[key]) {
+    bucketMap[key] = onCreate(titleCaseLocation(trimmed));
+  } else if (onExisting) {
+    onExisting(bucketMap[key]);
+  }
+  return bucketMap[key];
 }
 
 /**
@@ -303,6 +354,149 @@ router.get("/predictions/landing-stats", async (req, res) => {
  * GET /predictions/:id
  * Get a specific prediction by ID
  */
+router.delete("/predictions/orphaned", authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    // Two ways a prediction can be linked to a case report:
+    //  1. Top-level `relatedReportId` — set by POST /predictions and (after
+    //     the uploads.js fix) new CSV-bulk predictions.
+    //  2. `metadata.caseReportId` — the ONLY link legacy CSV-bulk predictions
+    //     have (uploads.js used to forget to set relatedReportId). Kept here
+    //     so predictions created before that fix can still be detected.
+    const predictionsWithReport = await Prediction.find({
+      $or: [
+        { relatedReportId: { $ne: null } },
+        { 'metadata.caseReportId': { $ne: null } },
+      ],
+    }).select('_id relatedReportId metadata.caseReportId');
+
+    if (predictionsWithReport.length === 0) {
+      return res.json({ success: true, message: 'No predictions are linked to a report', deleted: 0 });
+    }
+
+    const getLinkedReportId = (p) => p.relatedReportId || p.metadata?.caseReportId || null;
+
+    const reportIds = predictionsWithReport
+      .map(getLinkedReportId)
+      .filter(Boolean);
+    const existingReports = await CaseReport.find({ _id: { $in: reportIds } }).select('_id');
+    const existingReportIds = new Set(existingReports.map((r) => r._id.toString()));
+
+    const orphanedIds = predictionsWithReport
+      .filter((p) => {
+        const linkedId = getLinkedReportId(p);
+        return linkedId && !existingReportIds.has(linkedId.toString());
+      })
+      .map((p) => p._id);
+
+    if (orphanedIds.length === 0) {
+      return res.json({ success: true, message: 'No orphaned predictions found', deleted: 0 });
+    }
+
+    // Resolve (not hard-delete) any alerts those orphaned predictions
+    // triggered — same audit-preserving approach used by DELETE /reports/:id.
+    const Alert = require("../models/Alert");
+    const alertUpdateResult = await Alert.updateMany(
+      { "triggeringPredictions.predictionId": { $in: orphanedIds }, status: "active" },
+      { status: "resolved", resolvedAt: new Date(), resolvedReason: "Related report no longer exists" }
+    );
+
+    const deleteResult = await Prediction.deleteMany({ _id: { $in: orphanedIds } });
+
+    await logAudit({
+      action: 'CLEANUP_ORPHANED_PREDICTIONS',
+      req,
+      metadata: {
+        deletedCount: deleteResult.deletedCount,
+        resolvedAlerts: alertUpdateResult.modifiedCount,
+      },
+    });
+
+    console.log(`🧹 Cleaned up ${deleteResult.deletedCount} orphaned prediction(s) by ${req.user.username}`);
+
+    return res.json({
+      success: true,
+      message: `Removed ${deleteResult.deletedCount} orphaned prediction(s)`,
+      deleted: deleteResult.deletedCount,
+      resolvedAlerts: alertUpdateResult.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Error cleaning up orphaned predictions:", error.message);
+    return res.status(500).json({
+      error: "Failed to clean up orphaned predictions",
+      detail: error.message,
+    });
+  }
+});
+
+/**
+ * DELETE /predictions/untracked
+ * Maintenance endpoint (ADMIN only).
+ *
+ * Unlike /predictions/orphaned (which removes predictions whose
+ * relatedReportId/metadata.caseReportId points at a report that was
+ * deleted), this removes predictions that never had EITHER field set in
+ * the first place — legacy records (typically from an older CSV bulk-
+ * upload path) with no way to trace them back to a report at all. These
+ * don't show up in /predictions/orphaned's results because that endpoint
+ * can only act on predictions it can prove are broken links; these have
+ * no link to check.
+ *
+ * This is intentionally a separate, explicitly-named action rather than
+ * folded into /orphaned, since a prediction with no link field COULD also
+ * be a legitimate manual entry created directly via POST /predictions.
+ * Only run this if you've confirmed the untracked predictions really are
+ * leftover junk (e.g. all your case reports are gone but predictions
+ * remain).
+ */
+router.delete("/predictions/untracked", authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const untracked = await Prediction.find({
+      relatedReportId: null,
+      'metadata.caseReportId': null,
+    }).select('_id');
+
+    if (untracked.length === 0) {
+      return res.json({ success: true, message: 'No untracked predictions found', deleted: 0 });
+    }
+
+    const untrackedIds = untracked.map((p) => p._id);
+
+    // Resolve (not hard-delete) any alerts these untracked predictions
+    // triggered — same audit-preserving approach used by /predictions/orphaned.
+    const Alert = require("../models/Alert");
+    const alertUpdateResult = await Alert.updateMany(
+      { "triggeringPredictions.predictionId": { $in: untrackedIds }, status: "active" },
+      { status: "resolved", resolvedAt: new Date(), resolvedReason: "Untracked prediction removed (no linked report)" }
+    );
+
+    const deleteResult = await Prediction.deleteMany({ _id: { $in: untrackedIds } });
+
+    await logAudit({
+      action: 'CLEANUP_UNTRACKED_PREDICTIONS',
+      req,
+      metadata: {
+        deletedCount: deleteResult.deletedCount,
+        resolvedAlerts: alertUpdateResult.modifiedCount,
+      },
+    });
+
+    console.log(`🧹 Cleaned up ${deleteResult.deletedCount} untracked prediction(s) by ${req.user.username}`);
+
+    return res.json({
+      success: true,
+      message: `Removed ${deleteResult.deletedCount} untracked prediction(s)`,
+      deleted: deleteResult.deletedCount,
+      resolvedAlerts: alertUpdateResult.modifiedCount,
+    });
+  } catch (error) {
+    console.error("Error cleaning up untracked predictions:", error.message);
+    return res.status(500).json({
+      error: "Failed to clean up untracked predictions",
+      detail: error.message,
+    });
+  }
+});
+
 router.get("/predictions/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -398,6 +592,25 @@ router.delete("/predictions/:id", authMiddleware, async (req, res) => {
     });
   }
 });
+
+/**
+ * DELETE /predictions/orphaned
+ * Maintenance endpoint (ADMIN only).
+ *
+ * Normal deletes via DELETE /reports/:id already cascade-delete any
+ * predictions linked to that report. This endpoint exists for the case
+ * where case reports were removed some other way (direct DB access, a
+ * migration, a manual Mongo shell command, etc.) and left behind
+ * "orphaned" predictions — predictions whose relatedReportId no longer
+ * points to an existing CaseReport. Those orphans keep showing up in
+ * /analytics (Risk Assessments, High Risk Cases, Top Affected Locations)
+ * even though the underlying case report is gone.
+ *
+ * Predictions created directly via POST /predictions (relatedReportId is
+ * null) are NOT touched — those were never tied to a case report in the
+ * first place, so they aren't "orphaned".
+ */
+
 
 /**
  * GET /analytics
@@ -553,25 +766,33 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       timeSeriesData.push(dailyData[date]);
     });
 
-    // Location hotspots from both predictions and case reports
+    // Location hotspots from both predictions and case reports.
+    // Grouped by a normalized (trimmed, lowercased) key so "Peddapalli" and
+    // "peddapalli" count as the SAME place instead of two separate rows.
     const locationCounts = {};
 
-    predictions.forEach(p => {
-      if (p.location) {
-        locationCounts[p.location] = (locationCounts[p.location] || 0) + 1;
-      }
+    predictions.forEach((p) => {
+      addToLocationBucket(
+        locationCounts,
+        p.location,
+        (label) => ({ label, count: 1 }),
+        (entry) => { entry.count += 1; }
+      );
     });
 
-    caseReports.forEach(report => {
-      if (report.location) {
-        locationCounts[report.location] = (locationCounts[report.location] || 0) + 1;
-      }
+    caseReports.forEach((report) => {
+      addToLocationBucket(
+        locationCounts,
+        report.location,
+        (label) => ({ label, count: 1 }),
+        (entry) => { entry.count += 1; }
+      );
     });
 
-    const topLocations = Object.entries(locationCounts)
-      .sort((a, b) => b[1] - a[1])
+    const topLocations = Object.values(locationCounts)
+      .sort((a, b) => b.count - a.count)
       .slice(0, 10)
-      .map(([location, count]) => ({ location, count }));
+      .map(({ label, count }) => ({ location: label, count }));
 
     // Geographic clusters from case reports
     const geoClusters = caseReports
@@ -643,19 +864,29 @@ router.get("/analytics", authMiddleware, async (req, res) => {
     // label only. This is the ONLY case-level signal sent to restricted
     // (USER role) clients; it deliberately carries no patient data, exact
     // coordinates, confidence scores, or free-text case details.
+    // Grouped the same case/whitespace-insensitive way as topLocations above,
+    // so "Peddapalli" and "peddapalli" collapse into one district row.
     const locationRiskMap = {};
-    predictions.forEach(p => {
-      if (!p.location) return;
+    predictions.forEach((p) => {
       const risk = (p.riskLevel || 'low').toLowerCase();
-      if (!locationRiskMap[p.location]) locationRiskMap[p.location] = 'moderate';
-      if (risk === 'high') locationRiskMap[p.location] = 'critical';
+      addToLocationBucket(
+        locationRiskMap,
+        p.location,
+        (label) => ({ label, risk: risk === 'high' ? 'critical' : 'moderate' }),
+        (entry) => { if (risk === 'high') entry.risk = 'critical'; }
+      );
     });
-    caseReports.forEach(r => {
-      if (!r.location) return;
-      if (!locationRiskMap[r.location]) locationRiskMap[r.location] = 'moderate';
+    caseReports.forEach((r) => {
+      addToLocationBucket(
+        locationRiskMap,
+        r.location,
+        (label) => ({ label, risk: 'moderate' })
+        // no onExisting: a plain case report never downgrades an existing
+        // 'critical' entry back to 'moderate'
+      );
     });
-    const districtRiskSummary = Object.entries(locationRiskMap).map(([location, risk]) => ({
-      location,
+    const districtRiskSummary = Object.values(locationRiskMap).map(({ label, risk }) => ({
+      location: label,
       riskLevel: risk === 'critical' ? 'Critical' : 'Moderate'
     }));
 

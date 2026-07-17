@@ -112,6 +112,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
   const [timeRange, setTimeRange] = useState('30');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [selectedView, setSelectedView] = useState<'all' | 'symptoms' | 'demographics' | 'locations'>('all');
+  const [cleaningUp, setCleaningUp] = useState(false);
 
   const API_URL = 'http://localhost:5000';
 
@@ -170,6 +171,76 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
     setTimeRange(newRange);
   };
 
+  const handleCleanupOrphaned = async () => {
+    if (!window.confirm(
+      'This permanently removes predictions/alerts left behind by case reports ' +
+      'that were deleted outside the app (e.g. directly in the database). Continue?'
+    )) return;
+
+    try {
+      setCleaningUp(true);
+      setError(null);
+
+      const response = await fetch(`${API_URL}/predictions/orphaned`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to clean up orphaned predictions: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('🧹 Cleanup result:', result);
+
+      await fetchAnalytics(false); // refresh the stats immediately
+    } catch (err) {
+      console.error('Error cleaning up orphaned predictions:', err);
+      setError(err instanceof Error ? err.message : 'Failed to clean up orphaned predictions');
+    } finally {
+      setCleaningUp(false);
+    }
+  };
+
+  const [cleaningUntracked, setCleaningUntracked] = useState(false);
+
+  const handleCleanupUntracked = async () => {
+    if (!window.confirm(
+      `This permanently deletes predictions that were never linked to any case report ` +
+      `(e.g. leftover records from an older bulk-upload path). Currently: ${data?.summary.totalPredictions ?? 0} ` +
+      `total predictions vs ${data?.summary.totalCaseReports ?? 0} case reports. Continue?`
+    )) return;
+
+    try {
+      setCleaningUntracked(true);
+      setError(null);
+
+      const response = await fetch(`${API_URL}/predictions/untracked`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to clean up untracked predictions: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('🧹 Untracked cleanup result:', result);
+
+      await fetchAnalytics(false);
+    } catch (err) {
+      console.error('Error cleaning up untracked predictions:', err);
+      setError(err instanceof Error ? err.message : 'Failed to clean up untracked predictions');
+    } finally {
+      setCleaningUntracked(false);
+    }
+  };
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -272,6 +343,44 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
                 </>
               )}
             </button>
+
+            {/* Cleanup orphaned predictions — ADMIN only */}
+            {userRole === 'ADMIN' && (
+              <button
+                onClick={handleCleanupOrphaned}
+                disabled={cleaningUp}
+                className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg font-medium hover:bg-orange-200 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                title="Remove predictions/alerts whose case report was deleted directly in the database"
+              >
+                {cleaningUp ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Cleaning up...</span>
+                  </>
+                ) : (
+                  <span>🧹 Clean up orphaned data</span>
+                )}
+              </button>
+            )}
+
+            {/* Cleanup untracked predictions (no link field at all) — ADMIN only */}
+            {userRole === 'ADMIN' && (
+              <button
+                onClick={handleCleanupUntracked}
+                disabled={cleaningUntracked}
+                className="px-4 py-2 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                title="Remove predictions that were never linked to any case report (legacy bulk-upload records)"
+              >
+                {cleaningUntracked ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Cleaning up...</span>
+                  </>
+                ) : (
+                  <span>🗑️ Clean up untracked predictions</span>
+                )}
+              </button>
+            )}
           </div>
         </div>
 
@@ -615,15 +724,15 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
               <div
                 key={index}
                 className={`flex items-center justify-between p-4 rounded-lg border ${district.riskLevel === 'Critical'
-                    ? 'bg-red-50 border-red-200'
-                    : 'bg-yellow-50 border-yellow-200'
+                  ? 'bg-red-50 border-red-200'
+                  : 'bg-yellow-50 border-yellow-200'
                   }`}
               >
                 <span className="font-medium text-gray-900">{district.location}</span>
                 <span
                   className={`px-3 py-1 rounded-full text-xs font-semibold ${district.riskLevel === 'Critical'
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-yellow-100 text-yellow-700'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-yellow-100 text-yellow-700'
                     }`}
                 >
                   {district.riskLevel === 'Critical' ? '🔴 Critical' : '🟡 Moderate'}

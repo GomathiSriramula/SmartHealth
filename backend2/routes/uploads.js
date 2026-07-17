@@ -130,6 +130,11 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
           : ["Continue routine monitoring"],
       confidence: analysis.confidence,
       modelVersion: "csv-bulk-analyzer-v1.0",
+      // 🔑 Top-level link, same field DELETE /reports/:id and
+      // DELETE /predictions/orphaned both key off of. Without this,
+      // CSV-created predictions never cascade-delete and never show up
+      // as orphaned when the report is removed.
+      relatedReportId: report._id || null,
       metadata: {
         uploadedBy: authenticatedUsername,
         source: "csv_bulk_upload",

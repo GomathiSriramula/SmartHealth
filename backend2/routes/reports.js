@@ -5,8 +5,31 @@ const publish = require("../utils/publisher");
 const { notifyUsersOfPrediction } = require("../utils/mailer");
 const { checkForAlerts } = require("../services/alertChecker");
 
-const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict } = require("../utils/auth");
+const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict, operatorMatchesDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
+const { logAudit } = require("../utils/auditLogger");
+
+// Fields any permitted editor (ADMIN or OPERATOR-in-district) may change.
+const EDITABLE_REPORT_FIELDS = [
+  "reporter_type",
+  "patient_age",
+  "sex",
+  "symptoms",
+  "severity",
+  "remarks",
+  "reported_at",
+  "lat",
+  "lng",
+];
+
+// Fields that move a report between districts — only ADMIN may touch these.
+// OPERATORs are scoped to their own district and must never be able to
+// relocate a report out of (or into) it.
+const ADMIN_ONLY_REPORT_FIELDS = ["location", "village_area"];
+
+function normalizeForCompare(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
 
 // Debug endpoint
 router.post("/reports/debug", express.json(), (req, res) => {
@@ -154,9 +177,11 @@ async function createPredictionAndNotify(report, analysis) {
     console.log(`🚨 [Case Report Prediction] HIGH RISK CASE DETECTED: ${report._id} - Triggering prediction...`);
 
     // Create prediction record
+    const hasValidCoords = typeof report.lat === 'number' && typeof report.lng === 'number'
+      && !Number.isNaN(report.lat) && !Number.isNaN(report.lng);
     const predictionData = {
       predictionType: "Water-Borne Disease Case",
-      location: report.location || `Coordinates: (${report.lat}, ${report.lng})`,
+      location: report.location || (hasValidCoords ? `Coordinates: (${report.lat}, ${report.lng})` : 'Unknown'),
       riskLevel: analysis.riskLevel,
       predictedDate: report.reported_at || new Date(),
       details: `URGENT: High-risk case reported with ${analysis.highRiskSymptoms} critical symptoms. ` +
@@ -355,7 +380,138 @@ router.get("/reports", authMiddleware, async (req, res) => {
       .json({ error: "Error fetching reports", detail: e.message });
   }
 });
-router.delete("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
+/**
+ * PUT /reports/:id
+ * Edit an existing health report.
+ *
+ * Role-based access control:
+ * - ADMIN:    can edit any report, including moving it to a different
+ *             district (location/village_area).
+ * - OPERATOR: can edit ONLY reports whose location matches their own
+ *             assigned district, and can never change that district.
+ * - USER:     forbidden entirely (blocked by requireRole below).
+ */
+router.put("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
+  try {
+    const report = await CaseReport.findById(req.params.id);
+    if (!report) return res.status(404).json({ error: "report not found" });
+
+    const isAdmin = req.user.role === 'ADMIN';
+
+    if (!isAdmin) {
+      // OPERATOR: report must currently belong to their assigned district.
+      if (!operatorMatchesDistrict(req.user, report.location)) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Operators can only edit reports in their assigned district",
+        });
+      }
+
+      // OPERATOR: reject any attempt to change the district-defining fields,
+      // even to a value that happens to look the same (defense in depth —
+      // never trust client input for the scoping field).
+      const attemptsLocationChange = ADMIN_ONLY_REPORT_FIELDS.some((field) => {
+        if (!Object.prototype.hasOwnProperty.call(req.body, field)) return false;
+        if (field !== "location") return true; // village_area: never allowed for operators
+        return normalizeForCompare(req.body.location) !== normalizeForCompare(report.location);
+      });
+
+      if (attemptsLocationChange) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Operators cannot change a report's district",
+        });
+      }
+    }
+
+    // Build the update payload from an allow-list only — never trust
+    // arbitrary client-supplied keys (e.g. reporter_id, _id, createdAt).
+    const updates = {};
+    for (const field of EDITABLE_REPORT_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        updates[field] = req.body[field];
+      }
+    }
+    if (isAdmin) {
+      for (const field of ADMIN_ONLY_REPORT_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+          updates[field] = req.body[field];
+        }
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+
+    // Normalize the same way report creation does.
+    if (typeof updates.symptoms === "string") {
+      updates.symptoms = updates.symptoms
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    if (typeof updates.sex === "string") {
+      const s = updates.sex.toUpperCase();
+      if (["MALE", "M"].includes(s)) updates.sex = "M";
+      else if (["FEMALE", "F"].includes(s)) updates.sex = "F";
+      else if (["OTHER", "O"].includes(s)) updates.sex = "O";
+    }
+    if (typeof updates.reported_at === "string") {
+      const date = new Date(updates.reported_at);
+      if (!isNaN(date)) updates.reported_at = date;
+    }
+    if (updates.patient_age !== undefined) {
+      const age = Number(updates.patient_age);
+      if (!Number.isNaN(age)) updates.patient_age = age;
+    }
+    if (updates.lat !== undefined) {
+      const lat = Number(updates.lat);
+      if (!Number.isNaN(lat)) updates.lat = lat;
+    }
+    if (updates.lng !== undefined) {
+      const lng = Number(updates.lng);
+      if (!Number.isNaN(lng)) updates.lng = lng;
+    }
+
+    const previousValues = {};
+    for (const field of Object.keys(updates)) {
+      previousValues[field] = report[field];
+    }
+
+    Object.assign(report, updates);
+    await report.save();
+
+    await logAudit({
+      action: 'EDIT_REPORT',
+      req,
+      village: report.location,
+      entityId: report._id,
+      metadata: {
+        updatedFields: Object.keys(updates),
+        previousValues,
+      },
+    });
+
+    console.log(`✏️  Report ${report._id} edited by ${req.user.username} (${req.user.role})`);
+
+    return res.json({ success: true, report });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error updating report", detail: e.message });
+  }
+});
+
+/**
+ * DELETE /reports/:id
+ * Delete a health report (and its dependent predictions/alerts).
+ *
+ * Role-based access control:
+ * - ADMIN:    can delete any report.
+ * - OPERATOR: FORBIDDEN — operators may edit but never delete.
+ * - USER:     forbidden entirely.
+ */
+router.delete("/reports/:id", authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const report = await CaseReport.findById(req.params.id);
     if (!report) return res.status(404).json({ error: "report not found" });
@@ -383,6 +539,17 @@ router.delete("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), 
     await CaseReport.deleteOne({ _id: report._id });
 
     console.log(`🗑️  Deleted report ${report._id}: ${predDeleteResult.deletedCount} prediction(s) removed, ${resolvedAlertsCount} alert(s) resolved`);
+
+    await logAudit({
+      action: 'DELETE_REPORT',
+      req,
+      village: report.location,
+      entityId: report._id,
+      metadata: {
+        deletedPredictions: predDeleteResult.deletedCount,
+        resolvedAlerts: resolvedAlertsCount,
+      },
+    });
 
     return res.json({
       success: true,

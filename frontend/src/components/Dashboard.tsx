@@ -22,6 +22,10 @@ interface Report {
   reporter_id: string;
   reported_at: string;
   created_at: string;
+  location?: string;
+  village_area?: string;
+  severity?: string;
+  remarks?: string;
 }
 
 interface DashboardProps {
@@ -80,6 +84,20 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Report edit/delete state
+  const [editingReport, setEditingReport] = useState<Report | null>(null);
+  const [editReportForm, setEditReportForm] = useState({
+    patient_age: "",
+    sex: "",
+    symptoms: "",
+    severity: "",
+    remarks: "",
+  });
+  const [reportActionInProgress, setReportActionInProgress] = useState<string | null>(null);
+  const [reportActionMessage, setReportActionMessage] = useState("");
+  const [deleteConfirmReport, setDeleteConfirmReport] = useState<Report | null>(null);
+
   // Set default tab based on role - public users start on health advisory, the management view starts on the admin workspace
   const [activeTab, setActiveTab] = useState(
     userRole === 'ADMIN' ? 'operators' : userRole === 'USER' ? 'advisory' : 'overview'
@@ -164,6 +182,108 @@ const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => {
     fetchReports();
   }, [username]);
+
+  // --- Report edit/delete permissions (mirrors backend rules in reports.js) ---
+  // ADMIN: edit + delete any report.
+  // OPERATOR: edit ONLY reports in their own assigned district, never delete.
+  // USER: neither edit nor delete.
+  const canEditReport = (report: Report): boolean => {
+    if (userRole === "ADMIN") return true;
+    if (userRole === "OPERATOR") {
+      const reportDistrict = (report.location || "").trim().toLowerCase();
+      const myDistrict = (district || "").trim().toLowerCase();
+      return Boolean(myDistrict) && reportDistrict === myDistrict;
+    }
+    return false;
+  };
+
+  const canDeleteReport = (): boolean => userRole === "ADMIN";
+
+  const openEditReport = (report: Report) => {
+    setReportActionMessage("");
+    setEditingReport(report);
+    setEditReportForm({
+      patient_age: String(report.patient_age ?? ""),
+      sex: report.sex || "",
+      symptoms: (report.symptoms || []).join(", "),
+      severity: report.severity || "",
+      remarks: report.remarks || "",
+    });
+  };
+
+  const closeEditReport = () => {
+    setEditingReport(null);
+  };
+
+  const handleUpdateReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingReport) return;
+    const reportId = editingReport._id || String(editingReport.id);
+    setReportActionInProgress(reportId);
+    setReportActionMessage("");
+
+    try {
+      const res = await fetch(`${API_URL}/reports/${reportId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          patient_age: editReportForm.patient_age,
+          sex: editReportForm.sex,
+          symptoms: editReportForm.symptoms,
+          severity: editReportForm.severity,
+          remarks: editReportForm.remarks,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || data.error || `Error: ${res.status}`);
+      }
+
+      setReportActionMessage("✅ Report updated successfully");
+      setEditingReport(null);
+      await fetchReports(false);
+    } catch (err: any) {
+      console.error("❌ Error updating report:", err);
+      setReportActionMessage(`❌ ${err.message || "Failed to update report"}`);
+    } finally {
+      setReportActionInProgress(null);
+    }
+  };
+
+  const handleDeleteReport = async (report: Report) => {
+    const reportId = report._id || String(report.id);
+    setReportActionInProgress(reportId);
+    setReportActionMessage("");
+
+    try {
+      const res = await fetch(`${API_URL}/reports/${reportId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || data.error || `Error: ${res.status}`);
+      }
+
+      setReportActionMessage("✅ Report deleted successfully");
+      setDeleteConfirmReport(null);
+      await fetchReports(false);
+    } catch (err: any) {
+      console.error("❌ Error deleting report:", err);
+      setReportActionMessage(`❌ ${err.message || "Failed to delete report"}`);
+    } finally {
+      setReportActionInProgress(null);
+    }
+  };
 
   // Debounce the district search box before it drives a refetch
   useEffect(() => {
@@ -1006,6 +1126,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                 </button>
               </div>
 
+              {reportActionMessage && (
+                <Alert
+                  type={reportActionMessage.includes("✅") ? "success" : "error"}
+                  message={reportActionMessage.replace(/[✅❌]/g, "").trim()}
+                  onClose={() => setReportActionMessage("")}
+                />
+              )}
+
               <div className="bg-white rounded-xl shadow-sm border border-gray-100">
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -1029,12 +1157,15 @@ const Dashboard: React.FC<DashboardProps> = ({
                         <th className="text-left p-4 font-medium text-gray-900">
                           Status
                         </th>
+                        <th className="text-left p-4 font-medium text-gray-900">
+                          Actions
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
                       {loading ? (
                         <tr>
-                          <td colSpan={6} className="text-center p-8">
+                          <td colSpan={7} className="text-center p-8">
                             <div className="flex flex-col items-center">
                               <LoadingSpinner size="lg" />
                               <p className="text-gray-500 mt-4">
@@ -1046,7 +1177,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                       ) : reports.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={6}
+                            colSpan={7}
                             className="text-center p-8 text-gray-500"
                           >
                             No reports found
@@ -1098,9 +1229,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                               </div>
                             </td>
                             <td className="p-4">
-                              <p className="text-sm text-gray-600">
-                                {typeof report.lat === 'number' ? report.lat.toFixed(4) : 'N/A'}, {typeof report.lng === 'number' ? report.lng.toFixed(4) : 'N/A'}
+                              <p className="text-sm text-gray-900 font-medium">
+                                {report.location || report.village_area || "N/A"}
                               </p>
+                              {(typeof report.lat === "number" || typeof report.lng === "number") && (
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  {typeof report.lat === "number" ? report.lat.toFixed(4) : "N/A"}, {typeof report.lng === "number" ? report.lng.toFixed(4) : "N/A"}
+                                </p>
+                              )}
                             </td>
                             <td className="p-4">
                               <p className="text-sm text-gray-600">
@@ -1125,6 +1261,30 @@ const Dashboard: React.FC<DashboardProps> = ({
                                     : "Mild"}
                               </span>
                             </td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                {canEditReport(report) && (
+                                  <button
+                                    onClick={() => openEditReport(report)}
+                                    className="px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                {canDeleteReport() && (
+                                  <button
+                                    onClick={() => setDeleteConfirmReport(report)}
+                                    disabled={reportActionInProgress === (report._id || String(report.id))}
+                                    className="px-3 py-1 bg-red-600 text-white text-xs rounded hover:bg-red-700 disabled:opacity-50 transition-colors"
+                                  >
+                                    {reportActionInProgress === (report._id || String(report.id)) ? "..." : "Delete"}
+                                  </button>
+                                )}
+                                {!canEditReport(report) && !canDeleteReport() && (
+                                  <span className="text-xs text-gray-400">—</span>
+                                )}
+                              </div>
+                            </td>
                           </tr>
                         ))
                       )}
@@ -1132,6 +1292,177 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </table>
                 </div>
               </div>
+
+              {/* Edit Report Modal */}
+              {editingReport && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
+                    <div className="flex items-center justify-between p-6 border-b border-gray-100">
+                      <h2 className="text-lg font-semibold text-gray-900">
+                        Edit Report
+                      </h2>
+                      <button
+                        onClick={closeEditReport}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <form onSubmit={handleUpdateReport} className="p-6 space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Patient Age
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            value={editReportForm.patient_age}
+                            onChange={(e) =>
+                              setEditReportForm({ ...editReportForm, patient_age: e.target.value })
+                            }
+                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Sex
+                          </label>
+                          <select
+                            value={editReportForm.sex}
+                            onChange={(e) =>
+                              setEditReportForm({ ...editReportForm, sex: e.target.value })
+                            }
+                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            required
+                          >
+                            <option value="">Select</option>
+                            <option value="M">Male</option>
+                            <option value="F">Female</option>
+                            <option value="O">Other</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Symptoms (comma separated)
+                        </label>
+                        <input
+                          type="text"
+                          value={editReportForm.symptoms}
+                          onChange={(e) =>
+                            setEditReportForm({ ...editReportForm, symptoms: e.target.value })
+                          }
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="fever, diarrhea, vomiting"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Severity
+                        </label>
+                        <select
+                          value={editReportForm.severity}
+                          onChange={(e) =>
+                            setEditReportForm({ ...editReportForm, severity: e.target.value })
+                          }
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">Select</option>
+                          <option value="Mild">Mild</option>
+                          <option value="Moderate">Moderate</option>
+                          <option value="Severe">Severe</option>
+                          <option value="Critical">Critical</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Remarks
+                        </label>
+                        <textarea
+                          value={editReportForm.remarks}
+                          onChange={(e) =>
+                            setEditReportForm({ ...editReportForm, remarks: e.target.value })
+                          }
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          rows={3}
+                        />
+                      </div>
+
+                      {userRole === "OPERATOR" && (
+                        <p className="text-xs text-gray-500">
+                          Note: as an operator, you can only edit reports in your assigned
+                          district ({district || "—"}), and the report's district cannot be
+                          changed.
+                        </p>
+                      )}
+
+                      <div className="flex justify-end gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={closeEditReport}
+                          className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={
+                            reportActionInProgress ===
+                            (editingReport._id || String(editingReport.id))
+                          }
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                        >
+                          {reportActionInProgress === (editingReport._id || String(editingReport.id))
+                            ? "Saving..."
+                            : "Save Changes"}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Delete Confirmation Modal */}
+              {deleteConfirmReport && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-2">
+                      Delete Report?
+                    </h2>
+                    <p className="text-sm text-gray-600 mb-6">
+                      This will permanently delete this report from the database, along
+                      with any predictions it triggered. Related active alerts will be
+                      marked resolved. This action cannot be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                      <button
+                        onClick={() => setDeleteConfirmReport(null)}
+                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleDeleteReport(deleteConfirmReport)}
+                        disabled={
+                          reportActionInProgress ===
+                          (deleteConfirmReport._id || String(deleteConfirmReport.id))
+                        }
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                      >
+                        {reportActionInProgress ===
+                          (deleteConfirmReport._id || String(deleteConfirmReport.id))
+                          ? "Deleting..."
+                          : "Delete Permanently"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
