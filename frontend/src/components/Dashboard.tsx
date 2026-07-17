@@ -155,17 +155,23 @@ const Dashboard: React.FC<DashboardProps> = ({
         headers.Authorization = `Bearer ${token}`;
       }
 
-      console.log('🔄 Fetching reports for user:', username);
+      console.log('🔄 Fetching reports (role-scoped by backend):', userRole);
 
-      // Only fetch reports for the current user, with limit of 10,000
-      const url = `${API_URL}/reports?reporter_id=${encodeURIComponent(username)}&limit=10000`;
+      // Fetch reports scoped by the backend's role-based district filter
+      // (see GET /reports in reports.js: OPERATOR -> own district only,
+      // ADMIN/USER -> unrestricted). This previously ALSO filtered by
+      // reporter_id=username, which silently limited every stat on this
+      // dashboard (Total Reports, Critical Cases, Today's Reports, Severity
+      // Breakdown) to only the reports the logged-in user personally
+      // submitted -- not all reports actually visible to their role.
+      const url = `${API_URL}/reports?limit=10000`;
       const res = await fetch(url, {
         headers,
         cache: 'no-cache' // Force fresh data, no caching
       });
       if (!res.ok) throw new Error(`Error: ${res.status}`);
       const data = await res.json();
-      console.log('📊 Reports fetched for user', username, ':', data.length, 'reports');
+      console.log('📊 Reports fetched:', data.length, 'reports');
       setReports(data);
       console.log('📊 Reports state updated. Total count:', data.length);
     } catch (err) {
@@ -316,8 +322,20 @@ const Dashboard: React.FC<DashboardProps> = ({
         setAlerts(data.alerts || []);
       }
 
-      // Fetch stats
-      const statsRes = await fetch(`${API_URL}/api/alerts/stats/summary`, { headers });
+      // Fetch stats — pass the same district filter as the list above so the
+      // Active/Total/Resolved cards reflect what's actually being searched
+      // for, instead of always showing system-wide totals. Status is
+      // intentionally NOT passed through: the three cards ARE the
+      // active/resolved breakdown, so filtering by status wouldn't mean
+      // anything for them.
+      const statsParams = new URLSearchParams();
+      if (alertDistrictFilter && userRole !== "OPERATOR") {
+        statsParams.set("location", alertDistrictFilter);
+      }
+      const statsUrl = statsParams.toString()
+        ? `${API_URL}/api/alerts/stats/summary?${statsParams.toString()}`
+        : `${API_URL}/api/alerts/stats/summary`;
+      const statsRes = await fetch(statsUrl, { headers });
       if (statsRes.ok) {
         const statsData = await statsRes.json();
         setAlertStats({
@@ -522,10 +540,41 @@ const Dashboard: React.FC<DashboardProps> = ({
     "Loss of Appetite",
   ];
 
+  // Map a report's actual clinical severity (set by the reporter, and the
+  // same field the backend's real risk engine uses -- see analyzeReportRisk()
+  // in reports.js) to a display bucket. "Severe" is folded into "Critical"
+  // here because the backend escalates both to HIGH risk identically.
+  const severityToBucket = (severity?: string): "Critical" | "Moderate" | "Mild" | null => {
+    switch ((severity || "").trim()) {
+      case "Critical":
+      case "Severe":
+        return "Critical";
+      case "Moderate":
+        return "Moderate";
+      case "Mild":
+        return "Mild";
+      default:
+        return null;
+    }
+  };
+
+  // Legacy fallback (symptom count) only applies to reports created before
+  // the `severity` field existed / was left blank. Any report with a real
+  // severity value always uses that instead -- it's never overridden by
+  // symptom count.
+  const getSeverityBucket = (report: Report): "Critical" | "Moderate" | "Mild" => {
+    const fromField = severityToBucket(report.severity);
+    if (fromField) return fromField;
+    const count = report.symptoms ? report.symptoms.length : 0;
+    if (count >= 3) return "Critical";
+    if (count >= 1) return "Moderate";
+    return "Mild";
+  };
+
   // Calculate stats
   const totalReports = reports.length;
   const criticalCases = reports.filter(
-    (r: Report) => (r.symptoms ? r.symptoms.length : 0) >= 3
+    (r: Report) => getSeverityBucket(r) === "Critical"
   ).length;
   const todayReports = reports.filter((r: Report) => {
     try {
@@ -539,14 +588,16 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Extra insights for the Overview redesign
   const moderateCases = reports.filter(
-    (r: Report) => (r.symptoms ? r.symptoms.length : 0) === 1 || (r.symptoms ? r.symptoms.length : 0) === 2
+    (r: Report) => getSeverityBucket(r) === "Moderate"
   ).length;
-  const mildCases = totalReports - criticalCases - moderateCases;
+  const mildCases = reports.filter(
+    (r: Report) => getSeverityBucket(r) === "Mild"
+  ).length;
 
   const getSeverity = (report: Report): { label: string; dot: string; badge: string } => {
-    const count = report.symptoms ? report.symptoms.length : 0;
-    if (count >= 3) return { label: "Critical", dot: "bg-red-500", badge: "bg-red-100 text-red-700" };
-    if (count >= 1) return { label: "Moderate", dot: "bg-yellow-500", badge: "bg-yellow-100 text-yellow-700" };
+    const bucket = getSeverityBucket(report);
+    if (bucket === "Critical") return { label: "Critical", dot: "bg-red-500", badge: "bg-red-100 text-red-700" };
+    if (bucket === "Moderate") return { label: "Moderate", dot: "bg-yellow-500", badge: "bg-yellow-100 text-yellow-700" };
     return { label: "Mild", dot: "bg-green-500", badge: "bg-green-100 text-green-700" };
   };
 
@@ -1246,20 +1297,21 @@ const Dashboard: React.FC<DashboardProps> = ({
                               </p>
                             </td>
                             <td className="p-4">
-                              <span
-                                className={`px-3 py-1 rounded-full text-xs font-medium ${report.symptoms.length >= 3
-                                  ? "bg-red-100 text-red-800"
-                                  : report.symptoms.length >= 2
-                                    ? "bg-yellow-100 text-yellow-800"
-                                    : "bg-green-100 text-green-800"
-                                  }`}
-                              >
-                                {report.symptoms.length >= 3
-                                  ? "Critical"
-                                  : report.symptoms.length >= 2
-                                    ? "Moderate"
-                                    : "Mild"}
-                              </span>
+                              {(() => {
+                                // Reuse the same severity source as the Overview tab
+                                // (report.severity, with the legacy symptom-count
+                                // fallback) so this table's Status column can never
+                                // disagree with what Overview/Recent Reports shows
+                                // for the exact same report.
+                                const rowSeverity = getSeverity(report);
+                                return (
+                                  <span
+                                    className={`px-3 py-1 rounded-full text-xs font-medium ${rowSeverity.badge}`}
+                                  >
+                                    {rowSeverity.label}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">

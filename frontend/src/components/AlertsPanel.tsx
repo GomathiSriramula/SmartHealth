@@ -176,7 +176,15 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
         setAlerts([]);
       }
 
-      const statsResponse = await fetch(`${API_URL}/api/alerts/stats/summary`, {
+      // Pass the same location filter as the alert list above so the
+      // stat cards reflect the district actually being searched, instead
+      // of always showing system-wide totals. Status is intentionally NOT
+      // passed through — the stat cards ARE the active/resolved breakdown.
+      let statsUrl = `${API_URL}/api/alerts/stats/summary`;
+      if (filterLocation) {
+        statsUrl += `?location=${encodeURIComponent(filterLocation)}`;
+      }
+      const statsResponse = await fetch(statsUrl, {
         headers,
       });
 

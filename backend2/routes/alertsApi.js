@@ -245,10 +245,31 @@ router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
  * 
  * Role-based statistics:
  * - ADMIN/OPERATOR/USER: Returns statistics for all alerts
+ *
+ * Query parameters:
+ * - location: optional substring (contains) match, case-insensitive, same
+ *   semantics as GET /api/alerts, so the summary cards on the Alerts tab
+ *   can reflect the same "Search by district" filter as the list below
+ *   them instead of always showing system-wide totals.
  */
 router.get('/alerts/stats/summary', authMiddleware, async (req, res) => {
   try {
     let query = buildDistrictFilter(req.user);
+
+    const { location } = req.query;
+    if (location) {
+      const trimmedLocation = location.trim();
+      if (trimmedLocation) {
+        if (req.user.role === 'OPERATOR' && !operatorMatchesDistrict(req.user, trimmedLocation)) {
+          return res.status(403).json({
+            success: false,
+            error: 'Forbidden',
+            message: 'Operators can only view statistics for their assigned district',
+          });
+        }
+        query.location = new RegExp(trimmedLocation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      }
+    }
 
     // Total alerts
     const totalAlerts = await Alert.countDocuments(query);
