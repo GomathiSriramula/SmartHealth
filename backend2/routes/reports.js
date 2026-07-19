@@ -206,7 +206,10 @@ async function createPredictionAndNotify(report, analysis) {
     const prediction = await Prediction.create(predictionData);
     console.log(`✅ [Case Report Prediction] Prediction created: ${prediction._id}`);
 
-    // 🚨 Check for alerts (now triggers on a single HIGH-risk prediction — see alertChecker.js)
+    // 🚨 Check for alerts. Note: this requires TWO consecutive HIGH-risk
+    // predictions at the same location before an Alert is actually created —
+    // see ALERT_THRESHOLD in services/alertChecker.js. A single HIGH-risk
+    // report/prediction alone will NOT create an alert or send an email.
     let alertResult = null;
     try {
       alertResult = await checkForAlerts(prediction);
@@ -279,9 +282,19 @@ async function normalizeAndCreateReport(body) {
   return obj;
 }
 
+// 🔑 FIX: /report (singular, legacy alias of /reports) previously skipped
+// the operator-district auto-fill that /reports has. That meant a report
+// submitted here by an OPERATOR without an explicit `location` would save
+// with no district and silently disappear from that operator's own
+// district-filtered Dashboard/Reports/Alerts views. Now matches /reports.
 router.post("/report", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locationGuard(), async (req, res) => {
   try {
-    const obj = await normalizeAndCreateReport(req.body);
+    const reportBody = { ...req.body };
+    if (!reportBody.location) {
+      reportBody.location = getUserDistrict(req.user) || reportBody.location;
+    }
+
+    const obj = await normalizeAndCreateReport(reportBody);
     await publish("case_reports", { id: obj._id });
 
     // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
@@ -364,9 +377,8 @@ router.post("/reports", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locati
 router.get("/reports", authMiddleware, async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
-    const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 10000); // 🔑 Increased to 10,000
+    const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 10000);
     const filter = buildDistrictFilter(req.user);
-    // const filter = buildDistrictFilter(req.user, "district");
     if (req.query.reporter_id) {
       filter.reporter_id = req.query.reporter_id;
     }

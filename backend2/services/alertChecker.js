@@ -120,7 +120,7 @@ async function checkForAlerts(prediction) {
       const newAlert = new Alert({
         location: location,
         riskLevel: 'HIGH',
-        reason: `HIGH risk prediction detected at ${location}`,
+        reason: `HIGH risk assessment recorded at ${location}`,
         triggeringPredictions: [
           {
             predictionId: prediction._id,
@@ -177,7 +177,7 @@ async function checkForAlerts(prediction) {
       return {
         alert: newAlert,
         action: 'created',
-        message: `Alert created for ${location}: HIGH risk prediction detected`,
+        message: `Alert created for ${location}: HIGH risk assessment recorded`,
         notification: notificationResult,
       };
     }
@@ -220,7 +220,7 @@ async function checkForAlerts(prediction) {
       const newAlert = new Alert({
         location: location,
         riskLevel: 'HIGH',
-        reason: `${ALERT_THRESHOLD} consecutive HIGH risk predictions at ${location}`,
+        reason: `${ALERT_THRESHOLD} consecutive HIGH risk assessments at ${location}`,
         triggeringPredictions: [
           // Add the previous HIGH predictions
           ...recentHighRisks.slice(0, ALERT_THRESHOLD - 1).map((pred) => ({
@@ -288,7 +288,7 @@ async function checkForAlerts(prediction) {
       return {
         alert: newAlert,
         action: 'created',
-        message: `Alert created for ${location}: ${ALERT_THRESHOLD} consecutive HIGH predictions`,
+        message: `Alert created for ${location}: ${ALERT_THRESHOLD} consecutive HIGH risk assessments`,
         notification: notificationResult,
       };
     }

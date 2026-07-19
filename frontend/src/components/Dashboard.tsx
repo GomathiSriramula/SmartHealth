@@ -560,8 +560,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Map a report's actual clinical severity (set by the reporter, and the
   // same field the backend's real risk engine uses -- see analyzeReportRisk()
-  // in reports.js) to a display bucket. "Severe" is folded into "Critical"
+  // in reports.js) to a RISK/COLOR bucket. "Severe" is folded into "Critical"
   // here because the backend escalates both to HIGH risk identically.
+  //
+  // 🔑 This bucket is used ONLY for aggregate counting (criticalCases,
+  // moderateCases, mildCases, the Critical Cases stat card, etc.) and for
+  // picking badge COLOR. It intentionally does NOT change — Severe and
+  // Critical still count together as one risk tier here, matching the
+  // backend's severityFloor logic exactly as before.
   const severityToBucket = (severity?: string): "Critical" | "Moderate" | "Mild" | null => {
     switch ((severity || "").trim()) {
       case "Critical":
@@ -589,6 +595,22 @@ const Dashboard: React.FC<DashboardProps> = ({
     return "Mild";
   };
 
+  // 🔑 NEW: display-only label. Unlike severityToBucket()/getSeverityBucket()
+  // above (which stay untouched and still fold "Severe" into "Critical" for
+  // counting/statistics/risk purposes), this returns the reporter's EXACT
+  // selected severity word for what's shown on screen. A report with
+  // severity "Severe" now shows a "Severe" badge instead of "Critical",
+  // while still being counted inside criticalCases/alerts/statistics
+  // exactly as it always was. Legacy reports with no severity value fall
+  // back to the same symptom-count-derived bucket label as before.
+  const getDisplaySeverityLabel = (report: Report): string => {
+    const raw = (report.severity || "").trim();
+    if (raw === "Critical" || raw === "Severe" || raw === "Moderate" || raw === "Mild") {
+      return raw;
+    }
+    return getSeverityBucket(report);
+  };
+
   // Calculate stats
   const totalReports = reports.length;
   const criticalCases = reports.filter(
@@ -613,12 +635,12 @@ const Dashboard: React.FC<DashboardProps> = ({
   ).length;
 
   const getSeverity = (report: Report): { label: string; dot: string; badge: string } => {
-    const bucket = getSeverityBucket(report);
-    if (bucket === "Critical") return { label: "Critical", dot: "bg-red-500", badge: "bg-red-100 text-red-700" };
-    if (bucket === "Moderate") return { label: "Moderate", dot: "bg-yellow-500", badge: "bg-yellow-100 text-yellow-700" };
-    return { label: "Mild", dot: "bg-green-500", badge: "bg-green-100 text-green-700" };
+    const bucket = getSeverityBucket(report); // risk tier / color -- unchanged
+    const label = getDisplaySeverityLabel(report); // exact wording shown -- new
+    if (bucket === "Critical") return { label, dot: "bg-red-500", badge: "bg-red-100 text-red-700" };
+    if (bucket === "Moderate") return { label, dot: "bg-yellow-500", badge: "bg-yellow-100 text-yellow-700" };
+    return { label, dot: "bg-green-500", badge: "bg-green-100 text-green-700" };
   };
-
   const topSymptom = (() => {
     const counts: Record<string, number> = {};
     reports.forEach((r: Report) => {
@@ -1506,7 +1528,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </h2>
                     <p className="text-sm text-gray-600 mb-6">
                       This will permanently delete this report from the database, along
-                      with any predictions it triggered. Related active alerts will be
+                      with any risk assessments it triggered. Related active alerts will be
                       marked resolved. This action cannot be undone.
                     </p>
                     <div className="flex justify-end gap-3">

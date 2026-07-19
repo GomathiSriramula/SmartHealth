@@ -1,6 +1,6 @@
 /**
  * Alerts API Route
- * 
+ *
  * Endpoints for managing and monitoring alerts triggered by
  * consecutive HIGH-risk predictions or system events
  */
@@ -10,6 +10,7 @@ const router = express.Router();
 const Alert = require('../models/Alert');
 const { logAudit } = require('../utils/auditLogger');
 const { Prediction } = require('../models');
+const { authMiddleware, requireRole } = require('../utils/auth');
 
 async function getActiveAlerts() {
   return await Alert.find({ status: 'active' }).sort({ createdAt: -1 });
@@ -59,7 +60,7 @@ async function createHighRiskAlert(predictions, location) {
   const newAlert = new Alert({
     location: location,
     riskLevel: 'HIGH',
-    reason: `${predictions.length} consecutive HIGH risk predictions at ${location}`,
+    reason: `${predictions.length} consecutive HIGH risk assessments at ${location}`,
     triggeringPredictions: predictions.map((pred) => ({
       predictionId: pred._id,
       risk: pred.risk || pred.riskLevel,
@@ -77,7 +78,7 @@ async function createHighRiskAlert(predictions, location) {
  * GET /alerts/active
  * Get all active and escalated alerts
  */
-router.get('/active', async (req, res) => {
+router.get('/active', authMiddleware, async (req, res) => {
   try {
     const alerts = await getActiveAlerts();
 
@@ -99,7 +100,7 @@ router.get('/active', async (req, res) => {
  * GET /alerts/stats
  * Get alert statistics (counts by status, severity, type)
  */
-router.get('/stats', async (req, res) => {
+router.get('/stats', authMiddleware, async (req, res) => {
   try {
     const stats = await getAlertStats();
 
@@ -116,7 +117,7 @@ router.get('/stats', async (req, res) => {
 /**
  * GET /alerts
  * Retrieve alerts with filtering and pagination
- * 
+ *
  * Query parameters:
  * - status: filter by 'active', 'acknowledged', 'resolved', 'escalated'
  * - severity: filter by 'low', 'medium', 'high', 'critical'
@@ -124,7 +125,7 @@ router.get('/stats', async (req, res) => {
  * - limit: max results (default: 50)
  * - skip: pagination offset (default: 0)
  */
-router.get('/', async (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   try {
     const { status, severity, type, limit = 50, skip = 0 } = req.query;
 
@@ -174,7 +175,7 @@ router.get('/', async (req, res) => {
  * GET /alerts/:id
  * Get detailed alert information
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const alert = await Alert.findById(req.params.id)
       .populate('predictions')
@@ -202,16 +203,12 @@ router.get('/:id', async (req, res) => {
 /**
  * POST /alerts/:id/acknowledge
  * Acknowledge an alert (mark as reviewed)
- * 
- * Request body:
- * {
- *   "userId": "user@example.com"
- * }
+ * ADMIN/OPERATOR only.
  */
-router.post('/:id/acknowledge', async (req, res) => {
+router.post('/:id/acknowledge', authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId = 'system' } = req.body;
+    const userId = req.user.username;
 
     const alert = await acknowledgeAlert(id, userId);
 
@@ -239,36 +236,24 @@ router.post('/:id/acknowledge', async (req, res) => {
 /**
  * POST /alerts/:id/resolve
  * Resolve an alert with optional resolution notes
- * 
+ * ADMIN/OPERATOR only.
+ *
  * Request body:
  * {
- *   "userId": "user@example.com",
  *   "resolutionNotes": "Issue resolved, water quality returned to normal"
  * }
  */
-router.post('/:id/resolve', async (req, res) => {
+router.post('/:id/resolve', authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId = 'system', resolutionNotes = '' } = req.body;
+    const { resolutionNotes = '' } = req.body;
 
-    const alert = await resolveAlert(id, userId, resolutionNotes);
+    const alert = await resolveAlert(id, req.user.username, resolutionNotes);
 
     // Log audit event for RESOLVE_ALERT action
-    // Use req.user if available, otherwise create minimal user object for audit logging
-    const auditReq = req.user ? req : {
-      user: {
-        username: userId,
-        role: 'SYSTEM',
-        adminLocation: null,
-      },
-      ip: req.ip || null,
-      connection: req.connection,
-      socket: req.socket,
-    };
-
     await logAudit({
       action: 'RESOLVE_ALERT',
-      req: auditReq,
+      req,
       village: alert.location,
       entityId: alert._id,
       metadata: {
@@ -302,11 +287,13 @@ router.post('/:id/resolve', async (req, res) => {
 /**
  * POST /alerts/check-consecutive/:location
  * Check for consecutive high-risk predictions at a location
- * and create alert if needed
- * 
- * Internal endpoint for backend use
+ * and create alert if needed.
+ *
+ * Internal maintenance endpoint — ADMIN only. This can create alerts and
+ * trigger outbreak emails to every admin/operator, so it must never be
+ * reachable without authentication.
  */
-router.post('/check-consecutive/:location', async (req, res) => {
+router.post('/check-consecutive/:location', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const { location } = req.params;
 
@@ -318,7 +305,7 @@ router.post('/check-consecutive/:location', async (req, res) => {
 
       return res.json({
         success: true,
-        message: `Alert created for ${recentHighRisk.length} consecutive high-risk predictions`,
+        message: `Alert created for ${recentHighRisk.length} consecutive high-risk assessments`,
         alert,
         predictions: recentHighRisk,
       });
@@ -326,7 +313,7 @@ router.post('/check-consecutive/:location', async (req, res) => {
 
     return res.json({
       success: true,
-      message: 'No consecutive high-risk predictions found',
+      message: 'No consecutive high-risk assessments found',
       count: recentHighRisk.length,
       predictions: recentHighRisk,
     });

@@ -42,22 +42,32 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) 
   const API_URL = 'http://127.0.0.1:5000';
 
   // Fetch database statistics
+  // 🔑 FIX: /upload/stats now requires authentication on the backend
+  // (it used to be a public endpoint that leaked case-report counts to
+  // anyone). This call must send the Bearer token or it will 401 and the
+  // stats box will silently stop showing.
   const fetchStats = async () => {
+    if (!token) return;
     try {
-      const response = await fetch(`${API_URL}/upload/stats`);
+      const response = await fetch(`${API_URL}/upload/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (response.ok) {
         const data = await response.json();
         setStats(data.database);
+      } else {
+        console.error('Failed to fetch stats: HTTP', response.status);
       }
     } catch (err) {
       console.error('Failed to fetch stats:', err);
     }
   };
 
-  // Fetch stats on component mount
+  // Fetch stats on mount and whenever the token becomes available/changes
   React.useEffect(() => {
     fetchStats();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -192,55 +202,35 @@ Clinic Staff,55,Female,Kothapet,Moderate,Abdominal Pain|Fatigue,2026-06-04T16:20
               type="file"
               accept=".csv"
               onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-md file:border-0
-                file:text-sm file:font-semibold
-                file:bg-blue-50 file:text-blue-700
-                hover:file:bg-blue-100"
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
             />
             <button
               type="button"
               onClick={handleDownloadSample}
-              className="px-4 py-2 text-sm text-blue-600 hover:text-blue-800 border border-blue-300 rounded-md hover:bg-blue-50"
+              className="whitespace-nowrap px-4 py-2 text-sm font-medium text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50"
             >
-              📥 Download Sample
+              📥 Sample CSV
             </button>
           </div>
           {selectedFile && (
-            <p className="mt-2 text-sm text-green-600">
-              ✓ Selected: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
+            <p className="mt-2 text-sm text-gray-600">
+              Selected: <span className="font-medium">{selectedFile.name}</span> (
+              {(selectedFile.size / 1024).toFixed(2)} KB)
             </p>
           )}
         </div>
 
         {/* Upload Button */}
         <button
-          type="button"
           onClick={handleUpload}
           disabled={!selectedFile || uploading}
-          className={`w-full py-3 px-4 rounded-md font-semibold text-white transition-colors ${!selectedFile || uploading
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-700'
-            }`}
+          className="w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           {uploading ? (
-            <span className="flex items-center justify-center">
-              <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
+            <span className="flex items-center justify-center gap-2">
+              <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
               Uploading...
             </span>

@@ -119,7 +119,7 @@ function generatePredictionEmailHTML(prediction) {
     location = "Unknown",
     riskLevel = "Medium",
     predictedDate = new Date().toISOString(),
-    details = "A new prediction has been made.",
+    details = "A new case has been assessed.",
     recommendations = [],
     confidence = null,
     modelVersion = null,
@@ -182,7 +182,7 @@ function generatePredictionEmailHTML(prediction) {
                             <div style="background-color: ${riskBgColor}; border-left: 6px solid ${riskColor}; padding: 20px; margin: 20px 0; ${isHighRisk ? 'box-shadow: 0 2px 8px rgba(220, 38, 38, 0.2);' : ''}">
                                 <p style="margin: 0 0 10px; color: #4b5563; font-size: 14px; font-weight: bold;">RISK LEVEL</p>
                                 <p style="margin: 0; color: ${riskColor}; font-size: ${isHighRisk ? '28px' : '20px'}; font-weight: bold; ${isHighRisk ? 'text-transform: uppercase; letter-spacing: 2px;' : ''}">${riskLevel.toUpperCase()}</p>
-                                ${confidence ? `<p style="margin: 10px 0 0; color: #6b7280; font-size: 12px;">Confidence: ${confidence}%</p>` : ''}
+                                ${confidence ? `<p style="margin: 10px 0 0; color: #6b7280; font-size: 12px;">Risk Score: ${confidence}%</p>` : ''}
                             </div>
                             
                             <table style="width: 100%; margin: 20px 0; border-collapse: collapse;">
@@ -191,7 +191,7 @@ function generatePredictionEmailHTML(prediction) {
                                     <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${location}</td>
                                 </tr>
                                 <tr style="border-bottom: 1px solid #e5e7eb;">
-                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📅 Predicted Date:</td>
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📅 Reported Date:</td>
                                     <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${new Date(
     predictedDate
   ).toLocaleString('en-US', {
@@ -205,13 +205,13 @@ function generatePredictionEmailHTML(prediction) {
                                 </tr>
                                 ${confidence ? `
                                 <tr style="border-bottom: 1px solid #e5e7eb;">
-                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📊 Confidence:</td>
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">📊 Risk Score:</td>
                                     <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${confidence}%</td>
                                 </tr>
                                 ` : ''}
                                 ${modelVersion ? `
                                 <tr>
-                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">🤖 Model Version:</td>
+                                    <td style="padding: 12px 0; color: #6b7280; font-size: 14px;">🧮 Rule Set Version:</td>
                                     <td style="padding: 12px 0; color: #1f2937; font-size: 14px; font-weight: bold;">${modelVersion}</td>
                                 </tr>
                                 ` : ''}
@@ -287,18 +287,18 @@ function generatePredictionEmailText(prediction) {
     location = "Unknown",
     riskLevel = "Medium",
     predictedDate = new Date().toISOString(),
-    details = "A new prediction has been made.",
+    details = "A new case has been assessed.",
     recommendations = [],
   } = prediction;
 
   let text = `
-SmartHealth Alert - New Prediction
+SmartHealth Alert - New Risk Assessment
 ====================================
 
-Prediction Type: ${predictionType}
+Alert Type: ${predictionType}
 Risk Level: ${riskLevel.toUpperCase()}
 Location: ${location}
-Predicted Date: ${new Date(predictedDate).toLocaleString()}
+Reported Date: ${new Date(predictedDate).toLocaleString()}
 
 Details:
 ${details}
@@ -464,9 +464,9 @@ Alert ID: ${alert._id}
 Detected: ${timestamp}
 
 DETAILS:
-${alert.reason || "2 consecutive HIGH risk predictions detected"}
+${alert.reason || "2 consecutive HIGH risk assessments detected"}
 
-Number of triggering predictions: ${alert.triggeringPredictions ? alert.triggeringPredictions.length : 0
+Number of contributing reports: ${alert.triggeringPredictions ? alert.triggeringPredictions.length : 0
       }
 
 RECOMMENDED ACTIONS:
@@ -508,7 +508,7 @@ Alert Status: ${alert.status}
     <div class="content">
       <div class="alert-info">
         <p style="margin: 0; font-weight: bold; color: #dc2626;">IMMEDIATE ATTENTION REQUIRED</p>
-        <p style="margin: 10px 0 0; color: #7f1d1d;">2 consecutive HIGH risk predictions detected at this location</p>
+        <p style="margin: 10px 0 0; color: #7f1d1d;">2 consecutive HIGH risk assessments detected at this location</p>
       </div>
       
       <div class="label">📍 Location</div>
@@ -524,7 +524,7 @@ Alert Status: ${alert.status}
       <div class="label">🔍 Alert ID</div>
       <div class="value">${alert._id}</div>
       
-      <div class="label">📊 Triggering Predictions</div>
+      <div class="label">📊 Contributing Reports</div>
       <div class="value">${alert.triggeringPredictions ? alert.triggeringPredictions.length : 0}</div>
       
       <div class="recommendations">

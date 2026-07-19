@@ -89,9 +89,6 @@ function analyzeReportRisk(report) {
 }
 
 /**
- * Analyze CSV upload results and create prediction if HIGH RISK cases found
- */
-/**
  * Analyze EVERY CSV row individually.
  * - Creates ONE Prediction per row (not one aggregated prediction for the batch)
  * - Runs checkForAlerts() for every row whose prediction is HIGH risk
@@ -521,7 +518,7 @@ router.post("/upload/case-reports", authMiddleware, requireRole('ADMIN', 'OPERAT
  * GET /upload/stats
  * Get upload statistics and database counts
  */
-router.get("/upload/stats", async (req, res) => {
+router.get("/upload/stats", authMiddleware, async (req, res) => {
   try {
     const caseReportCount = await CaseReport.countDocuments();
 
