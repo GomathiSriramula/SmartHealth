@@ -9,6 +9,7 @@ import OutbreakMap from "./OutbreakMap";
 
 import AdminOperators from "./AdminOperators";
 import HealthAdvisory from "./HealthAdvisory";
+import { API_URL } from "./api";
 
 interface Report {
   _id?: string;
@@ -141,7 +142,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [alertDistrictInput, setAlertDistrictInput] = useState<string>("");
   const [alertDistrictFilter, setAlertDistrictFilter] = useState<string>("");
 
-  const API_URL = "http://127.0.0.1:5000";
 
   // Fetch reports from backend
   const fetchReports = async (showLoading: boolean = true) => {
@@ -476,7 +476,6 @@ const Dashboard: React.FC<DashboardProps> = ({
 
       const headers: HeadersInit = {
         "Content-Type": "application/json",
-        "x-api-key": "secret-key", // Always include API key as fallback
       };
 
       // Add authorization header if token exists
@@ -945,7 +944,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <StatsCard
                   title="Total Reports"
                   value={totalReports}
-                  change={12}
                   color="blue"
                   icon={
                     <svg
@@ -967,7 +965,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <StatsCard
                   title="Critical Cases"
                   value={criticalCases}
-                  change={-5}
                   color="red"
                   icon={
                     <svg
@@ -989,7 +986,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <StatsCard
                   title="Today's Reports"
                   value={todayReports}
-                  change={8}
                   color="green"
                   icon={
                     <svg
@@ -1011,7 +1007,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <StatsCard
                   title="Response Time"
                   value="<2min"
-                  change={15}
                   color="purple"
                   icon={
                     <svg

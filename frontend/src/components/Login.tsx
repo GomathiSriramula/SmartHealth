@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Alert from "./Alert";
+import { API_URL } from "./api";
 
 interface LoginProps {
   onLoginSuccess: (token: string, username: string, role: string) => void;
@@ -12,7 +13,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const API_URL = "http://127.0.0.1:5000";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

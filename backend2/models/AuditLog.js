@@ -13,7 +13,17 @@ const AuditLogSchema = new mongoose.Schema(
     action: {
       type: String,
       required: true,
-      enum: ['CREATE_PREDICTION', 'RESOLVE_ALERT', 'UPLOAD_CSV'],
+      enum: [
+        'CREATE_PREDICTION',
+        'RESOLVE_ALERT',
+        'ACKNOWLEDGE_ALERT',
+        'NOTIFY_ALERT',
+        'UPLOAD_CSV',
+        'EDIT_REPORT',
+        'DELETE_REPORT',
+        'CLEANUP_ORPHANED_PREDICTIONS',
+        'CLEANUP_UNTRACKED_PREDICTIONS',
+      ],
       index: true,
     },
 

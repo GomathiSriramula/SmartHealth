@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Alert from "./Alert";
+import { API_URL } from "./api";
 
 interface RegisterProps {
   onRegisterSuccess: () => void;
@@ -16,7 +17,6 @@ const Register: React.FC<RegisterProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const API_URL = "http://127.0.0.1:5000";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

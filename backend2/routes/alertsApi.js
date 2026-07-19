@@ -1,10 +1,11 @@
 const express = require('express');
 const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
-const { authMiddleware, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
+const { authMiddleware, requireRole, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
 const { getManualNotificationRecipients } = require('../utils/notificationRecipients');
 const { getDistrictCoordinates } = require('../utils/districtCoordinates');
-const { CaseReport } = require('../models');
+const { CaseReport, Prediction } = require('../models');
+const { logAudit } = require('../utils/auditLogger');
 
 const router = express.Router();
 
@@ -160,16 +161,105 @@ router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
     // Send notification
     const result = await sendAlertNotification(alert, recipients);
 
+    // Re-fetch: sendAlertNotification just persisted notificationSent/
+    // notificationTimestamp/notificationError on this doc, but `alert`
+    // above is a pre-notification snapshot. Without this, the UI's
+    // "already notified" state never updates until a full page refresh.
+    const updatedAlert = await Alert.findById(req.params.id);
+
+    await logAudit({
+      action: 'NOTIFY_ALERT',
+      req,
+      village: updatedAlert.location,
+      entityId: updatedAlert._id,
+      metadata: {
+        riskLevel: updatedAlert.riskLevel,
+        location: updatedAlert.location,
+        recipientCount: recipients.length,
+        notificationSuccess: result.success,
+      },
+    });
+
     return res.json({
       success: result.success,
       message: result.message,
-      alert,
+      alert: updatedAlert,
     });
   } catch (error) {
     console.error('[AlertsAPI] Error sending notification:', error.message);
     return res.status(500).json({
       success: false,
       error: 'Failed to send notification',
+      detail: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/alerts/:id/acknowledge
+ * Mark an alert as reviewed/acknowledged (does not resolve it).
+ *
+ * Role-based access (same district scoping as resolve/notify above):
+ * - ADMIN:    can acknowledge any alert
+ * - OPERATOR: only alerts in their own assigned district
+ * - Regular USERS are forbidden.
+ *
+ * Ported from the legacy /alerts router, which previously fetched the
+ * alert but never persisted the acknowledgment — see acknowledgedAt/
+ * acknowledgedBy on the Alert model.
+ */
+router.post('/alerts/:id/acknowledge', authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
+  try {
+    const userRole = req.user.role || 'USER';
+
+    const alert = await Alert.findById(req.params.id);
+
+    if (!alert) {
+      return res.status(404).json({
+        success: false,
+        error: 'Alert not found',
+      });
+    }
+
+    // Operators may only act on alerts within their own district
+    if (userRole === 'OPERATOR' && !operatorMatchesDistrict(req.user, alert.location)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden',
+        message: 'Operators can only acknowledge alerts in their assigned district'
+      });
+    }
+
+    const updatedAlert = await Alert.findByIdAndUpdate(
+      req.params.id,
+      {
+        acknowledgedAt: new Date(),
+        acknowledgedBy: req.user.username,
+      },
+      { new: true }
+    );
+
+    await logAudit({
+      action: 'ACKNOWLEDGE_ALERT',
+      req,
+      village: updatedAlert.location,
+      entityId: updatedAlert._id,
+      metadata: {
+        riskLevel: updatedAlert.riskLevel,
+        location: updatedAlert.location,
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: 'Alert acknowledged',
+      alert: updatedAlert,
+    });
+  } catch (error) {
+    console.error('[AlertsAPI] Error acknowledging alert:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to acknowledge alert',
       detail: error.message,
     });
   }
@@ -223,6 +313,18 @@ router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
       },
       { new: true }
     );
+
+    await logAudit({
+      action: 'RESOLVE_ALERT',
+      req,
+      village: updatedAlert.location,
+      entityId: updatedAlert._id,
+      metadata: {
+        riskLevel: updatedAlert.riskLevel,
+        location: updatedAlert.location,
+        resolutionNotes: req.body.reason || 'Manually resolved',
+      },
+    });
 
     return res.json({
       success: true,
@@ -475,6 +577,81 @@ router.get('/alerts/map/locations', authMiddleware, async (req, res) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to get outbreak map locations',
+      detail: error.message,
+    });
+  }
+});
+
+/**
+ * Ported from the legacy /alerts router's check-consecutive helpers.
+ * Used only by POST /api/alerts/check-consecutive/:location below.
+ */
+async function getRecentHighRiskPredictions(location) {
+  const fromDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  return await Prediction.find({
+    location,
+    riskLevel: { $in: ['high', 'HIGH'] },
+    predictedDate: { $gte: fromDate },
+  }).sort({ predictedDate: -1 });
+}
+
+async function createHighRiskAlert(predictions, location) {
+  const newAlert = new Alert({
+    location: location,
+    riskLevel: 'HIGH',
+    reason: `${predictions.length} consecutive HIGH risk assessments at ${location}`,
+    triggeringPredictions: predictions.map((pred) => ({
+      predictionId: pred._id,
+      risk: pred.risk || pred.riskLevel,
+      confidence: pred.confidence,
+      predictedAt: pred.predictedAt || pred.predictedDate,
+    })),
+    status: 'active',
+    notificationSent: false,
+  });
+  await newAlert.save();
+  return newAlert;
+}
+
+/**
+ * POST /api/alerts/check-consecutive/:location
+ * Check for consecutive high-risk predictions at a location and create an
+ * alert if needed.
+ *
+ * Internal maintenance endpoint — ADMIN only, same as the legacy router.
+ * This can create alerts and trigger outbreak emails to every admin/
+ * operator, so it must never be reachable without authentication. There is
+ * no OPERATOR access at all here (unlike resolve/notify/acknowledge above),
+ * so no per-district scoping is needed — only ADMIN can call this.
+ */
+router.post('/alerts/check-consecutive/:location', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const { location } = req.params;
+
+    const recentHighRisk = await getRecentHighRiskPredictions(location);
+
+    if (recentHighRisk.length >= 2) {
+      const alert = await createHighRiskAlert(recentHighRisk, location);
+
+      return res.json({
+        success: true,
+        message: `Alert created for ${recentHighRisk.length} consecutive high-risk assessments`,
+        alert,
+        predictions: recentHighRisk,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'No consecutive high-risk assessments found',
+      count: recentHighRisk.length,
+      predictions: recentHighRisk,
+    });
+  } catch (error) {
+    console.error('[AlertsAPI] Error checking consecutive predictions:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check consecutive predictions',
       detail: error.message,
     });
   }

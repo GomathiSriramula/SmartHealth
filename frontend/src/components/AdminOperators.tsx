@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Alert from "./Alert";
 import LoadingSpinner from "./LoadingSpinner";
+import { API_URL } from "./api";
 
 interface OperatorAccount {
   id: string;
@@ -30,7 +31,6 @@ const initialForm: OperatorFormState = {
 };
 
 const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
-  const API_URL = "http://127.0.0.1:5000";
   const [operators, setOperators] = useState<OperatorAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

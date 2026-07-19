@@ -28,7 +28,14 @@ async function getAlertStats() {
 }
 
 async function acknowledgeAlert(id, userId) {
-  const alert = await Alert.findById(id);
+  const alert = await Alert.findByIdAndUpdate(
+    id,
+    {
+      acknowledgedAt: new Date(),
+      acknowledgedBy: userId,
+    },
+    { new: true }
+  );
   if (!alert) throw new Error('Alert not found');
   return alert;
 }

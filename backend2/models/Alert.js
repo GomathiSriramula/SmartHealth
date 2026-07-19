@@ -67,6 +67,18 @@ const AlertSchema = new mongoose.Schema(
       default: null,
     },
 
+    // When the alert was acknowledged (if applicable)
+    acknowledgedAt: {
+      type: Date,
+      default: null,
+    },
+
+    // Username of the ADMIN/OPERATOR who acknowledged the alert
+    acknowledgedBy: {
+      type: String,
+      default: null,
+    },
+
     // Notification tracking
     notificationSent: {
       type: Boolean,

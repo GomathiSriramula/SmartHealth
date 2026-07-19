@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_URL } from './api';
 
 interface LandingPageProps {
   onGetStarted: () => void;
@@ -26,7 +27,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
 
   const fetchLandingStats = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:5000/predictions/landing-stats');
+      const response = await fetch(`${API_URL}/predictions/landing-stats`);
       if (!response.ok) {
         throw new Error('Failed to fetch stats');
       }

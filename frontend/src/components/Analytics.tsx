@@ -16,6 +16,7 @@ import {
 } from 'recharts';
 import LoadingSpinner from './LoadingSpinner';
 import Alert from './Alert';
+import { API_URL } from './api';
 
 interface AnalyticsProps {
   token: string;
@@ -114,7 +115,6 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
   const [selectedView, setSelectedView] = useState<'all' | 'symptoms' | 'demographics' | 'locations'>('all');
   const [cleaningUp, setCleaningUp] = useState(false);
 
-  const API_URL = 'http://localhost:5000';
 
   const fetchAnalytics = useCallback(async (showLoading = true) => {
     try {
@@ -252,7 +252,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <div className="p-6">
         <Alert
@@ -301,6 +301,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
+      {error && (
+        <div className="mb-4">
+          <Alert type="error" message={error} onClose={() => setError(null)} />
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between">

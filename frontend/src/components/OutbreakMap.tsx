@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { API_URL } from "./api";
 
 interface OutbreakLocation {
     location: string;
@@ -19,8 +20,6 @@ interface OutbreakMapProps {
     token: string;
     userRole: string;
 }
-
-const API_URL = "http://127.0.0.1:5000";
 
 const RISK_COLORS: Record<string, string> = {
     HIGH: "#dc2626",

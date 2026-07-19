@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import RiskIndicator from "./RiskIndicator";
 import LoadingSpinner from "./LoadingSpinner";
+import { API_URL } from "./api";
 
 interface AlertData {
   _id: string;
@@ -42,8 +43,6 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AlertData | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
-
-  const API_URL = "http://127.0.0.1:5000";
 
   const getHeaders = useCallback((): HeadersInit => {
     const headers: HeadersInit = {

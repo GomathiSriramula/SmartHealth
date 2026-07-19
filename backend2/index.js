@@ -10,7 +10,6 @@ const reportsRouter = require("./routes/reports");
 const authRouter = require("./routes/auth");
 const predictionsRouter = require("./routes/predictions");
 const uploadsRouter = require("./routes/uploads");
-const alertsRouter = require("./routes/alerts");
 const alertsApiRouter = require("./routes/alertsApi");
 
 const { ensureDefaultAdmin } = require("./utils/auth");
@@ -75,7 +74,6 @@ app.use("/", reportsRouter);
 app.use("/", authRouter);
 app.use("/", predictionsRouter);
 app.use("/", uploadsRouter);
-app.use("/alerts", alertsRouter);
 app.use("/api", alertsApiRouter);
 
 const PORT = process.env.PORT || 5000;

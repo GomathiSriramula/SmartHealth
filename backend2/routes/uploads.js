@@ -5,7 +5,7 @@ const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
 const { CaseReport, Prediction } = require("../models");
-const { authMiddleware, requireRole, getUserDistrict } = require("../utils/auth");
+const { authMiddleware, requireRole, getUserDistrict, buildDistrictFilter } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
 const { checkForAlerts } = require("../services/alertChecker");
@@ -83,6 +83,25 @@ function analyzeReportRisk(report) {
   } else if (mediumRiskMatches >= 1) {
     riskLevel = 'low';
     confidence = 50 + (mediumRiskMatches * 5);
+  }
+
+  // 🔑 FIX: apply the same severity floor as reports.js's analyzeReportRisk
+  // so CSV-bulk-uploaded rows escalate to HIGH exactly like manually
+  // submitted reports do when the reporter marks Severe/Critical severity,
+  // even if the symptom text doesn't match the keyword list above.
+  // Severity can only push risk UP, never down.
+  const rank = { low: 0, medium: 1, high: 2 };
+  const severityFloor = {
+    critical: { riskLevel: 'high', confidence: 90 },
+    severe: { riskLevel: 'high', confidence: 80 },
+  };
+  const severityKey = typeof report.severity === 'string' ? report.severity.toLowerCase().trim() : '';
+  const floor = severityFloor[severityKey];
+  if (floor) {
+    if (rank[floor.riskLevel] > rank[riskLevel]) {
+      riskLevel = floor.riskLevel;
+    }
+    confidence = Math.max(confidence, floor.confidence);
   }
 
   return { riskLevel, confidence, highRiskMatches, mediumRiskMatches };
@@ -516,11 +535,16 @@ router.post("/upload/case-reports", authMiddleware, requireRole('ADMIN', 'OPERAT
 
 /**
  * GET /upload/stats
- * Get upload statistics and database counts
+ * Get upload statistics and database counts.
+ *
+ * ADMIN/OPERATOR only. An OPERATOR only sees the count for their own
+ * assigned district (same filter used everywhere else — see
+ * buildDistrictFilter in utils/auth.js); an ADMIN sees the global total.
  */
-router.get("/upload/stats", authMiddleware, async (req, res) => {
+router.get("/upload/stats", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
-    const caseReportCount = await CaseReport.countDocuments();
+    const filter = buildDistrictFilter(req.user);
+    const caseReportCount = await CaseReport.countDocuments(filter);
 
     res.json({
       database: {

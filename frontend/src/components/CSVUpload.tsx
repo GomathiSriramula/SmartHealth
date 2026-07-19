@@ -1,6 +1,7 @@
 // src/components/CSVUpload.tsx
 import React, { useState } from 'react';
 import Alert from './Alert';
+import { API_URL } from './api';
 
 interface UploadResult {
   message: string;
@@ -39,7 +40,6 @@ export const CSVUpload: React.FC<CSVUploadProps> = ({ token, onUploadSuccess }) 
   const [error, setError] = useState<string>('');
   const [stats, setStats] = useState<{ caseReports: number } | null>(null);
 
-  const API_URL = 'http://127.0.0.1:5000';
 
   // Fetch database statistics
   // 🔑 FIX: /upload/stats now requires authentication on the backend
