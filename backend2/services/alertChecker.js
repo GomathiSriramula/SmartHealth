@@ -46,9 +46,9 @@ async function checkForAlerts(prediction) {
 
     console.log(`[Alert Checker] Checking location: ${location}, current risk: ${currentRisk}`);
 
-    // Step 1: Check if there's an active alert for this location
+    // Step 1: Check if there's an active alert for this location (case-insensitive)
     const activeAlert = await Alert.findOne({
-      location: location,
+      location: new RegExp(`^${location.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
       status: 'active',
     });
 
@@ -185,35 +185,30 @@ async function checkForAlerts(prediction) {
     // Step 4b: Threshold > 1 — look for enough previous consecutive HIGH
     // predictions at this location within the time window before creating
     // an alert. (Kept for cases where ALERT_THRESHOLD is raised back above 1.)
-    console.log(`🔍 [Alert Checker] No active alert. Looking for previous HIGH predictions in ${location}...`);
+    console.log(`🔍 [Alert Checker] No active alert. Looking for previous consecutive HIGH predictions in ${location}...`);
 
     const timeWindowStart = new Date(currentTime.getTime() - TIME_WINDOW);
+    const locationRegex = new RegExp(`^${location.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
 
-    const recentHighRisks = await Prediction.find({
-      location: location,
-      $and: [
-        {
-          $or: [
-            { risk: { $in: ['HIGH', 'high'] } },
-            { riskLevel: { $in: ['HIGH', 'high'] } } // Support alternate field name
-          ]
-        },
-        {
-          $or: [
-            { predictedAt: { $gte: timeWindowStart } },
-            { predictedDate: { $gte: timeWindowStart } } // Support alternate field name
-          ]
-        }
-      ],
+    // Retrieve the most recent predictions at this location (regardless of risk level)
+    const recentPredictions = await Prediction.find({
+      location: locationRegex,
       _id: { $ne: prediction._id }, // Exclude current prediction
     })
-      .sort({ predictedAt: -1, predictedDate: -1 })
-      .limit(ALERT_THRESHOLD - 1); // Get up to (threshold - 1) previous HIGHs
+      .sort({ predictedDate: -1 })
+      .limit(ALERT_THRESHOLD - 1);
 
-    console.log(`   Found ${recentHighRisks.length} previous HIGH predictions in time window`);
+    console.log(`   Found ${recentPredictions.length} previous prediction(s) at this location in database`);
 
-    // We need ALERT_THRESHOLD total HIGH predictions (including current)
-    if (recentHighRisks.length >= ALERT_THRESHOLD - 1) {
+    // Verify all recent predictions are high risk and within the time window to be considered consecutive
+    const allHighAndRecent = recentPredictions.length >= ALERT_THRESHOLD - 1 &&
+      recentPredictions.every(pred => {
+        const risk = (pred.risk || pred.riskLevel || '').toLowerCase();
+        const date = pred.predictedDate || pred.predictedAt;
+        return risk === 'high' && date && new Date(date) >= timeWindowStart;
+      });
+
+    if (allHighAndRecent) {
       console.log(`✅ [Alert Creator] THRESHOLD MET: ${ALERT_THRESHOLD} total consecutive HIGHs detected!`);
 
       // Create new alert
@@ -223,7 +218,7 @@ async function checkForAlerts(prediction) {
         reason: `${ALERT_THRESHOLD} consecutive HIGH risk assessments at ${location}`,
         triggeringPredictions: [
           // Add the previous HIGH predictions
-          ...recentHighRisks.slice(0, ALERT_THRESHOLD - 1).map((pred) => ({
+          ...recentPredictions.slice(0, ALERT_THRESHOLD - 1).map((pred) => ({
             predictionId: pred._id,
             risk: pred.risk || pred.riskLevel,
             confidence: pred.confidence,
@@ -293,12 +288,12 @@ async function checkForAlerts(prediction) {
       };
     }
 
-    console.log(`⏳ [Alert Checker] Only ${recentHighRisks.length + 1} HIGH prediction(s) so far - need ${ALERT_THRESHOLD} consecutive. Waiting for next prediction.`);
+    console.log(`⏳ [Alert Checker] Consecutive HIGH threshold not met for ${location}. Waiting for next prediction.`);
 
     return {
       alert: null,
       action: 'none',
-      message: `Insufficient consecutive HIGH risks at ${location} (have ${recentHighRisks.length + 1}, need ${ALERT_THRESHOLD})`,
+      message: `Insufficient consecutive HIGH risks at ${location} (have 1 current, need ${ALERT_THRESHOLD} consecutive in ${TIME_WINDOW / 1000 / 60 / 60}h)`,
     };
   } catch (error) {
     console.error('[Alert Checker] Error checking for alerts:', error.message);

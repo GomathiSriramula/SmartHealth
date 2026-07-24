@@ -1,4 +1,5 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const { CaseReport, Prediction } = require("../models");
 const publish = require("../utils/publisher");
@@ -417,6 +418,9 @@ router.get("/reports", authMiddleware, async (req, res) => {
  */
 router.put("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report ID" });
+    }
     const report = await CaseReport.findById(req.params.id);
     if (!report) return res.status(404).json({ error: "report not found" });
 
@@ -537,6 +541,9 @@ router.put("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), asy
  */
 router.delete("/reports/:id", authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report ID" });
+    }
     const report = await CaseReport.findById(req.params.id);
     if (!report) return res.status(404).json({ error: "report not found" });
 

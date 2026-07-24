@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
 const { authMiddleware, requireRole, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
@@ -20,6 +21,9 @@ router.get('/alerts', authMiddleware, async (req, res) => {
   try {
     const { location, status = 'all', limit = 50, skip = 0 } = req.query;
     const userRole = req.user.role || 'USER';
+
+    const limitVal = parseInt(limit, 10) || 50;
+    const skipVal = parseInt(skip, 10) || 0;
 
     // Build base filter from query parameters
     const filter = buildDistrictFilter(req.user);
@@ -48,15 +52,15 @@ router.get('/alerts', authMiddleware, async (req, res) => {
     // Get paginated results
     const alerts = await Alert.find(filter)
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip));
+      .limit(limitVal)
+      .skip(skipVal);
 
     return res.json({
       success: true,
       total,
       count: alerts.length,
-      skip: parseInt(skip),
-      limit: parseInt(limit),
+      skip: skipVal,
+      limit: limitVal,
       userRole,
       alerts: alerts,
     });
@@ -79,6 +83,9 @@ router.get('/alerts', authMiddleware, async (req, res) => {
  */
 router.get('/alerts/:id', authMiddleware, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid alert ID' });
+    }
     const alert = await Alert.findOne({ _id: req.params.id, ...buildDistrictFilter(req.user) });
 
     if (!alert) {
@@ -114,6 +121,9 @@ router.get('/alerts/:id', authMiddleware, async (req, res) => {
  */
 router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid alert ID' });
+    }
     const userRole = req.user.role || 'USER';
     if (userRole !== 'ADMIN' && userRole !== 'OPERATOR') {
       return res.status(403).json({
@@ -210,6 +220,9 @@ router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
  */
 router.post('/alerts/:id/acknowledge', authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid alert ID' });
+    }
     const userRole = req.user.role || 'USER';
 
     const alert = await Alert.findById(req.params.id);
@@ -275,6 +288,9 @@ router.post('/alerts/:id/acknowledge', authMiddleware, requireRole('ADMIN', 'OPE
  */
 router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, error: 'Invalid alert ID' });
+    }
     const userRole = req.user.role || 'USER';
     if (userRole !== 'ADMIN' && userRole !== 'OPERATOR') {
       return res.status(403).json({

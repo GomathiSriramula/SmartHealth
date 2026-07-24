@@ -62,8 +62,7 @@ const OutbreakMap: React.FC<OutbreakMapProps> = ({ token, userRole }) => {
         fetchLocations();
         const interval = setInterval(fetchLocations, 60000); // refresh every minute
         return () => clearInterval(interval);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [token, statusFilter]);
+    }, [token, statusFilter, userRole]);
 
     // Roughly centered on Telangana
     const center: [number, number] = [17.9, 79.3];

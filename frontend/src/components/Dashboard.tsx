@@ -51,7 +51,10 @@ interface AlertData {
 // The backend embeds `locations` in the token payload at sign-in (see backend2/utils/auth.js).
 function getDistrictFromToken(jwtToken: string): string {
   try {
-    const payloadSegment = jwtToken.split(".")[1];
+    if (!jwtToken) return "";
+    const segments = jwtToken.split(".");
+    if (segments.length < 2) return "";
+    const payloadSegment = segments[1];
     const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
     const decoded = decodeURIComponent(
       atob(normalized)
@@ -1808,6 +1811,9 @@ const Dashboard: React.FC<DashboardProps> = ({
                           symptoms: [],
                         });
                         setReportedAtDisplay(formatDateTimeLocal(new Date()));
+                        if (userRole === 'ADMIN') {
+                          setDistrict("");
+                        }
                       }}
                       disabled={submitting}
                       className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

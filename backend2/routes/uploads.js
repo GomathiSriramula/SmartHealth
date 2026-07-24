@@ -455,10 +455,10 @@ router.post("/upload/case-reports", authMiddleware, requireRole('ADMIN', 'OPERAT
           // any resulting alert are based on rows that genuinely made it in.
           // 🚨 Analyze every uploaded report individually — creates one Prediction
           // per row and runs checkForAlerts() for every HIGH-risk row.
-          const analysisResult = await analyzeCSVReportsAndNotify(
-            insertedRecords.length > 0 ? insertedRecords : results,
-            authenticatedUsername
-          );
+          // Only trigger risk analysis and alert check if records were successfully inserted
+          const analysisResult = insertedRecords.length > 0
+            ? await analyzeCSVReportsAndNotify(insertedRecords, authenticatedUsername)
+            : null;
 
           // Delete the uploaded file after processing
           fs.unlinkSync(filePath);

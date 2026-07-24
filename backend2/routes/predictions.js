@@ -123,7 +123,7 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
     const prediction = new Prediction({
       predictionType,
       location: location || operatorDistrict || "Unknown",
-      riskLevel: riskLevel.toLowerCase(),
+      riskLevel: String(riskLevel).toLowerCase(),
       details,
       recommendations: recommendations || [],
       lat,
@@ -244,17 +244,20 @@ router.get("/predictions", authMiddleware, async (req, res) => {
   try {
     const { riskLevel, limit = 50, skip = 0, sort = "newest" } = req.query;
 
+    const limitVal = parseInt(limit, 10) || 50;
+    const skipVal = parseInt(skip, 10) || 0;
+
     const query = buildDistrictFilter(req.user);
     if (riskLevel) {
-      query.riskLevel = riskLevel.toLowerCase();
+      query.riskLevel = String(riskLevel).toLowerCase();
     }
 
     const sortOrder = sort === "oldest" ? 1 : -1;
 
     const predictions = await Prediction.find(query)
       .sort({ predictedDate: sortOrder })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip));
+      .limit(limitVal)
+      .skip(skipVal);
 
     const total = await Prediction.countDocuments(query);
 
@@ -262,8 +265,8 @@ router.get("/predictions", authMiddleware, async (req, res) => {
       predictions,
       pagination: {
         total,
-        limit: parseInt(limit),
-        skip: parseInt(skip),
+        limit: limitVal,
+        skip: skipVal,
         returned: predictions.length,
       },
     });
@@ -582,24 +585,6 @@ router.delete("/predictions/:id", authMiddleware, async (req, res) => {
     });
   }
 });
-
-/**
- * DELETE /predictions/orphaned
- * Maintenance endpoint (ADMIN only).
- *
- * Normal deletes via DELETE /reports/:id already cascade-delete any
- * predictions linked to that report. This endpoint exists for the case
- * where case reports were removed some other way (direct DB access, a
- * migration, a manual Mongo shell command, etc.) and left behind
- * "orphaned" predictions — predictions whose relatedReportId no longer
- * points to an existing CaseReport. Those orphans keep showing up in
- * /analytics (Risk Assessments, High Risk Cases, Top Affected Locations)
- * even though the underlying case report is gone.
- *
- * Predictions created directly via POST /predictions (relatedReportId is
- * null) are NOT touched — those were never tied to a case report in the
- * first place, so they aren't "orphaned".
- */
 
 
 /**
