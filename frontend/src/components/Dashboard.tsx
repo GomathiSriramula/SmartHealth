@@ -151,6 +151,14 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [alertDistrictInput, setAlertDistrictInput] = useState<string>("");
   const [alertDistrictFilter, setAlertDistrictFilter] = useState<string>("");
 
+  // Reports search/filter state
+  const [reportDistrictFilter, setReportDistrictFilter] = useState("");
+  const [reportSeverityFilter, setReportSeverityFilter] = useState("");
+  const [reportSearchFilter, setReportSearchFilter] = useState("");
+  const [reportStartDateFilter, setReportStartDateFilter] = useState("");
+  const [reportEndDateFilter, setReportEndDateFilter] = useState("");
+  const [exportingFormat, setExportingFormat] = useState<string | null>(null);
+
 
   // Fetch reports from backend
   const fetchReports = async (showLoading: boolean = true) => {
@@ -205,6 +213,111 @@ const Dashboard: React.FC<DashboardProps> = ({
   useEffect(() => {
     fetchReports();
   }, [username]);
+
+  const filteredReports = reports.filter((report) => {
+    // 1. Search filter: matches village area, reporter id, symptoms, or remarks
+    if (reportSearchFilter.trim()) {
+      const search = reportSearchFilter.toLowerCase();
+      const village = (report.village_area || "").toLowerCase();
+      const reporter = (report.reporter_id || "").toLowerCase();
+      const remarks = (report.remarks || "").toLowerCase();
+      const symptoms = (report.symptoms || []).join(", ").toLowerCase();
+      if (!village.includes(search) && !reporter.includes(search) && !remarks.includes(search) && !symptoms.includes(search)) {
+        return false;
+      }
+    }
+    
+    // 2. Severity filter
+    if (reportSeverityFilter) {
+      const displaySeverity = getDisplaySeverityLabel(report);
+      if (displaySeverity !== reportSeverityFilter) {
+        return false;
+      }
+    }
+
+    // 3. District filter (ADMIN only can change this filter)
+    if (userRole === "ADMIN" && reportDistrictFilter.trim()) {
+      const reportDistrict = (report.location || "").toLowerCase();
+      if (!reportDistrict.includes(reportDistrictFilter.toLowerCase())) {
+        return false;
+      }
+    }
+
+    // 4. Date range filters
+    if (reportStartDateFilter) {
+      const reportDate = new Date(report.created_at || report.reported_at);
+      const startDate = new Date(reportStartDateFilter);
+      startDate.setHours(0, 0, 0, 0);
+      if (reportDate < startDate) return false;
+    }
+    if (reportEndDateFilter) {
+      const reportDate = new Date(report.created_at || report.reported_at);
+      const endDate = new Date(reportEndDateFilter);
+      endDate.setHours(23, 59, 59, 999);
+      if (reportDate > endDate) return false;
+    }
+
+    return true;
+  });
+
+  const handleExportReports = async (format: "pdf" | "excel") => {
+    setExportingFormat(format);
+    setReportActionMessage("");
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append("format", format);
+      
+      if (reportSeverityFilter) {
+        queryParams.append("severity", reportSeverityFilter);
+      }
+      
+      if (userRole === "ADMIN" && reportDistrictFilter.trim()) {
+        queryParams.append("location", reportDistrictFilter.trim());
+      }
+      
+      if (reportStartDateFilter) {
+        queryParams.append("startDate", reportStartDateFilter);
+      }
+      
+      if (reportEndDateFilter) {
+        queryParams.append("endDate", reportEndDateFilter);
+      }
+      
+      const res = await fetch(`${API_URL}/reports/export?${queryParams.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server error: ${res.status}`);
+      }
+
+      // Read as blob
+      const blob = await res.blob();
+      
+      // Trigger browser download
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      
+      const extension = format === "excel" ? "xlsx" : "pdf";
+      link.download = `SmartHealth_Reports_${Date.now()}.${extension}`;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err: any) {
+      console.error(`Export to ${format} failed:`, err);
+      setReportActionMessage(`❌ Export failed: ${err.message || err}`);
+    } finally {
+      setExportingFormat(null);
+    }
+  };
 
   // --- Report edit/delete permissions (mirrors backend rules in reports.js) ---
   // ADMIN: edit + delete any report.
@@ -1256,6 +1369,137 @@ const Dashboard: React.FC<DashboardProps> = ({
                 />
               )}
 
+              {/* Reports Filter and Export Bar */}
+              <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                  {/* Search box */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Search Keywords</label>
+                    <input
+                      type="text"
+                      placeholder="Village, symptoms, remarks..."
+                      value={reportSearchFilter}
+                      onChange={(e) => setReportSearchFilter(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Severity filter */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Severity</label>
+                    <select
+                      value={reportSeverityFilter}
+                      onChange={(e) => setReportSeverityFilter(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                    >
+                      <option value="">All Severities</option>
+                      <option value="Critical">Critical</option>
+                      <option value="Severe">Severe</option>
+                      <option value="Moderate">Moderate</option>
+                      <option value="Mild">Mild</option>
+                    </select>
+                  </div>
+
+                  {/* District filter - Admin only */}
+                  {userRole === "ADMIN" ? (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">District</label>
+                      <input
+                        type="text"
+                        placeholder="Filter by district..."
+                        value={reportDistrictFilter}
+                        onChange={(e) => setReportDistrictFilter(e.target.value)}
+                        className="w-full text-sm border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">District Scoping</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={district || "Assigned District"}
+                        className="w-full text-sm border border-gray-200 bg-gray-50 text-gray-500 rounded-lg p-2 focus:outline-none cursor-not-allowed"
+                      />
+                    </div>
+                  )}
+
+                  {/* Start Date */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={reportStartDateFilter}
+                      onChange={(e) => setReportStartDateFilter(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* End Date */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={reportEndDateFilter}
+                      onChange={(e) => setReportEndDateFilter(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+                  <div className="text-xs text-gray-500">
+                    Showing <span className="font-semibold text-gray-900">{filteredReports.length}</span> of <span className="font-semibold text-gray-900">{reports.length}</span> reports
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setReportSearchFilter("");
+                        setReportSeverityFilter("");
+                        setReportDistrictFilter("");
+                        setReportStartDateFilter("");
+                        setReportEndDateFilter("");
+                      }}
+                      className="px-3 py-1.5 border border-gray-200 text-xs rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+                    >
+                      Clear Filters
+                    </button>
+                    <button
+                      disabled={exportingFormat !== null}
+                      onClick={() => handleExportReports("pdf")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-red-200 text-xs rounded-lg text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 transition-colors font-medium"
+                    >
+                      {exportingFormat === "pdf" ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-red-700 border-t-transparent rounded-full animate-spin"></div>
+                          <span>PDF Export...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>📄 Export PDF</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      disabled={exportingFormat !== null}
+                      onClick={() => handleExportReports("excel")}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-green-200 text-xs rounded-lg text-green-700 bg-green-50 hover:bg-green-100 disabled:opacity-50 transition-colors font-medium"
+                    >
+                      {exportingFormat === "excel" ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-green-700 border-t-transparent rounded-full animate-spin"></div>
+                          <span>Excel Export...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>📊 Export Excel</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-white rounded-xl shadow-sm border border-gray-100">
                 <div className="overflow-x-auto">
                   <table className="w-full">
@@ -1296,7 +1540,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                             </div>
                           </td>
                         </tr>
-                      ) : reports.length === 0 ? (
+                      ) : filteredReports.length === 0 ? (
                         <tr>
                           <td
                             colSpan={7}
@@ -1306,7 +1550,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           </td>
                         </tr>
                       ) : (
-                        reports.map((report: Report, index: number) => (
+                        filteredReports.map((report: Report, index: number) => (
                           <tr
                             key={report._id || report.id || `report-${index}`}
                             className="border-b border-gray-50 hover:bg-gray-50"

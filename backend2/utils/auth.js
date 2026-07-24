@@ -81,30 +81,85 @@ async function createUser(username, password, email, options = {}) {
   return user;
 }
 
-// Only creates a bootstrap admin if DEFAULT_ADMIN_EMAIL/PASSWORD are set in
-// the environment. No credentials are hardcoded — this is intentionally a
-// no-op unless you opt in via .env, and you should remove those env vars
-// once the admin account exists.
-async function ensureDefaultAdmin() {
-  const email = process.env.DEFAULT_ADMIN_EMAIL;
-  const password = process.env.DEFAULT_ADMIN_PASSWORD;
-  const username = process.env.DEFAULT_ADMIN_USERNAME || "admin";
+// Builds the list of admin accounts to bootstrap on startup. No credentials
+// are hardcoded — this is intentionally a no-op unless you opt in via .env.
+//
+// Two ways to configure it:
+//   1. DEFAULT_ADMINS — a JSON array in .env, for multiple startup admins:
+//        DEFAULT_ADMINS=[{"email":"a@x.com","password":"...","username":"admin1","state":"Telangana"},{"email":"b@x.com","password":"...","username":"admin2"}]
+//   2. DEFAULT_ADMIN_EMAIL / DEFAULT_ADMIN_PASSWORD / DEFAULT_ADMIN_USERNAME /
+//      DEFAULT_ADMIN_STATE — the legacy single-admin vars. Still supported so
+//      existing .env files keep working, and treated as one extra entry.
+//
+// Both can be set at once — entries are merged (by email) with DEFAULT_ADMINS
+// taking priority on a collision.
+function getDefaultAdminConfigs() {
+  const configs = new Map(); // keyed by email, de-duplicates + lets legacy vars fill gaps
 
-  if (!email || !password) {
+  const rawList = process.env.DEFAULT_ADMINS;
+  if (rawList) {
+    let parsed;
+    try {
+      parsed = JSON.parse(rawList);
+    } catch (e) {
+      console.error(`❌ DEFAULT_ADMINS is not valid JSON, ignoring it: ${e.message}`);
+      parsed = [];
+    }
+    if (Array.isArray(parsed)) {
+      for (const entry of parsed) {
+        if (entry && entry.email && entry.password) {
+          configs.set(entry.email, {
+            email: entry.email,
+            password: entry.password,
+            username: entry.username || entry.email.split('@')[0],
+            state: entry.state || "",
+          });
+        } else {
+          console.warn('⚠️  Skipping DEFAULT_ADMINS entry missing email/password:', entry);
+        }
+      }
+    } else {
+      console.error('❌ DEFAULT_ADMINS must be a JSON array, ignoring it.');
+    }
+  }
+
+  const legacyEmail = process.env.DEFAULT_ADMIN_EMAIL;
+  const legacyPassword = process.env.DEFAULT_ADMIN_PASSWORD;
+  if (legacyEmail && legacyPassword && !configs.has(legacyEmail)) {
+    configs.set(legacyEmail, {
+      email: legacyEmail,
+      password: legacyPassword,
+      username: process.env.DEFAULT_ADMIN_USERNAME || "admin",
+      state: process.env.DEFAULT_ADMIN_STATE || "",
+    });
+  }
+
+  return Array.from(configs.values());
+}
+
+async function ensureDefaultAdmin() {
+  const configs = getDefaultAdminConfigs();
+  if (configs.length === 0) {
     return [];
   }
 
-  const existingAdmin = await User.findOne({ email });
-  if (existingAdmin) {
-    return [existingAdmin];
+  const admins = [];
+  for (const config of configs) {
+    const existingAdmin = await User.findOne({ email: config.email });
+    if (existingAdmin) {
+      admins.push(existingAdmin);
+      continue;
+    }
+
+    const newAdmin = await createUser(config.username, config.password, config.email, {
+      role: 'ADMIN',
+      adminLocation: { state: config.state },
+    });
+    console.log(`✅ Default admin created: ${config.email} — remove its credentials from .env now`);
+    admins.push(newAdmin);
   }
 
-  const newAdmin = await createUser(username, password, email, {
-    role: 'ADMIN',
-    adminLocation: { state: process.env.DEFAULT_ADMIN_STATE || "" }
-  });
-  console.log(`✅ Default admin created: ${email} — remove DEFAULT_ADMIN_* from .env now`);
-  return [newAdmin];
+  return admins;
 }
 
 async function verifyPassword(password, hash) {

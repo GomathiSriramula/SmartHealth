@@ -39,6 +39,13 @@ const PredictionSchema = new mongoose.Schema(
     relatedReportId: { type: mongoose.Schema.Types.ObjectId, ref: 'CaseReport', required: false },
     topFactors: { type: [String], default: [] },
     reasoning: { type: String, required: false },
+    // 🔑 Required so routes/uploads.js's `metadata.caseReportId` (the legacy
+    // fallback link used by DELETE /predictions/orphaned and /untracked)
+    // actually gets persisted. Without this field declared, Mongoose's
+    // default strict mode silently drops the whole `metadata` object on
+    // save — every CSV-bulk prediction would be created with an empty
+    // metadata, breaking the orphan/untracked cleanup fallback.
+    metadata: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
