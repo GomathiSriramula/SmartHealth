@@ -9,6 +9,7 @@ const { authMiddleware, requireRole, getUserDistrict, buildDistrictFilter } = re
 const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
 const { checkForAlerts } = require("../services/alertChecker");
+const { getPredictionWithFallback } = require("../utils/mlPredictor");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -122,7 +123,7 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
   let notificationsSent = 0;
 
   for (const report of reports) {
-    const analysis = analyzeReportRisk(report);
+    const analysis = await getPredictionWithFallback(report);
 
     const predictionData = {
       predictionType: "Water-Borne Disease Case Prediction",
@@ -132,7 +133,9 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
       details:
         `Case report for ${report.village_area || report.location || "unknown area"}. ` +
         `Risk level: ${analysis.riskLevel.toUpperCase()}. ` +
-        `Symptoms: ${(report.symptoms || []).join(", ")}.`,
+        `${analysis.reasoning || ""} ` +
+        `Symptoms: ${(report.symptoms || []).join(", ")}.` +
+        (analysis.topFactors && analysis.topFactors.length > 0 ? ` Top Contributing Factors: ${analysis.topFactors.join(', ')}.` : ''),
       recommendations:
         analysis.riskLevel === "high"
           ? [
@@ -143,7 +146,9 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
           ]
           : ["Continue routine monitoring"],
       confidence: analysis.confidence,
-      modelVersion: "csv-bulk-analyzer-v1.0",
+      modelVersion: analysis.modelVersion || "csv-bulk-analyzer-v1.0",
+      topFactors: analysis.topFactors || [],
+      reasoning: analysis.reasoning || "",
       // 🔑 Top-level link, same field DELETE /reports/:id and
       // DELETE /predictions/orphaned both key off of. Without this,
       // CSV-created predictions never cascade-delete and never show up

@@ -36,6 +36,9 @@ const PredictionSchema = new mongoose.Schema(
     confidence: { type: Number, required: false, min: 0, max: 100 },
     lat: { type: Number, required: false },
     lng: { type: Number, required: false },
+    relatedReportId: { type: mongoose.Schema.Types.ObjectId, ref: 'CaseReport', required: false },
+    topFactors: { type: [String], default: [] },
+    reasoning: { type: String, required: false },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );

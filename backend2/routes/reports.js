@@ -4,6 +4,7 @@ const router = express.Router();
 const { CaseReport, Prediction } = require("../models");
 const publish = require("../utils/publisher");
 const { checkForAlerts } = require("../services/alertChecker");
+const { getPredictionWithFallback } = require("../utils/mlPredictor");
 
 const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict, operatorMatchesDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
@@ -184,9 +185,10 @@ async function createPredictionAndNotify(report, analysis) {
       location: report.location || (hasValidCoords ? `Coordinates: (${report.lat}, ${report.lng})` : 'Unknown'),
       riskLevel: analysis.riskLevel,
       predictedDate: report.reported_at || new Date(),
-      details: `URGENT: High-risk case reported with ${analysis.highRiskSymptoms} critical symptoms. ` +
+      details: `URGENT: High-risk case reported. ` +
         `${analysis.reasoning} Patient age: ${report.patient_age || 'Unknown'}, ` +
-        `Sex: ${report.sex || 'Unknown'}. Symptoms: ${Array.isArray(report.symptoms) ? report.symptoms.join(', ') : report.symptoms}.`,
+        `Sex: ${report.sex || 'Unknown'}. Symptoms: ${Array.isArray(report.symptoms) ? report.symptoms.join(', ') : report.symptoms}.` +
+        (analysis.topFactors && analysis.topFactors.length > 0 ? ` Top Contributing Factors: ${analysis.topFactors.join(', ')}.` : ''),
       recommendations: [
         "Immediate medical attention required for patient",
         "Test water source in affected area immediately",
@@ -197,7 +199,9 @@ async function createPredictionAndNotify(report, analysis) {
         "Consider temporary water supply alternatives"
       ],
       confidence: analysis.confidence,
-      modelVersion: "symptom-analyzer-v1.0",
+      modelVersion: analysis.modelVersion || "symptom-analyzer-v1.0",
+      topFactors: analysis.topFactors || [],
+      reasoning: analysis.reasoning || "",
       lat: report.lat,
       lng: report.lng,
       relatedReportId: report._id
@@ -298,8 +302,8 @@ router.post("/report", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locatio
     const obj = await normalizeAndCreateReport(reportBody);
     await publish("case_reports", { id: obj._id });
 
-    // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
-    const analysis = analyzeReportRisk(obj);
+    // 🚨 Analyze report for disease risk using ML service (falling back to rule-based analysis)
+    const analysis = await getPredictionWithFallback(obj);
     console.log(`📊 [Case Report] Report ${obj._id} created - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
 
     const predictionResult = await createPredictionAndNotify(obj, analysis);
@@ -342,8 +346,8 @@ router.post("/reports", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locati
     const obj = await normalizeAndCreateReport(reportBody);
     await publish("case_reports", { id: obj._id });
 
-    // 🚨 Analyze report for disease risk and trigger prediction if HIGH RISK
-    const analysis = analyzeReportRisk(obj);
+    // 🚨 Analyze report for disease risk using ML service (falling back to rule-based analysis)
+    const analysis = await getPredictionWithFallback(obj);
     console.log(`📊 [Case Report] Report ${obj._id} created - Risk: ${analysis.riskLevel}, Confidence: ${analysis.confidence}%`);
 
     const predictionResult = await createPredictionAndNotify(obj, analysis);
@@ -403,6 +407,37 @@ router.get("/reports", authMiddleware, async (req, res) => {
     return res
       .status(500)
       .json({ error: "Error fetching reports", detail: e.message });
+  }
+});
+
+router.get("/reports/:id", authMiddleware, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid report ID" });
+    }
+    const report = await CaseReport.findById(req.params.id).lean();
+    if (!report) return res.status(404).json({ error: "report not found" });
+
+    // Scoping check (Operator can only see reports in their own district)
+    if (req.user.role === 'OPERATOR') {
+      const { getUserDistrict } = require("../utils/auth");
+      const myDistrict = (getUserDistrict(req.user) || "").trim().toLowerCase();
+      const reportDistrict = (report.location || "").trim().toLowerCase();
+      if (myDistrict && reportDistrict !== myDistrict) {
+        return res.status(403).json({ error: "Forbidden", message: "Operators can only view reports in their assigned district" });
+      }
+    }
+
+    // Find linked prediction (if any)
+    const prediction = await Prediction.findOne({ relatedReportId: report._id }).lean();
+
+    return res.json({
+      report,
+      prediction: prediction || null
+    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "Error fetching report details", detail: e.message });
   }
 });
 /**

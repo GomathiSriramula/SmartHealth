@@ -9,6 +9,7 @@ import OutbreakMap from "./OutbreakMap";
 
 import AdminOperators from "./AdminOperators";
 import HealthAdvisory from "./HealthAdvisory";
+import RiskIndicator from "./RiskIndicator";
 import { API_URL } from "./api";
 
 interface Report {
@@ -101,6 +102,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [reportActionInProgress, setReportActionInProgress] = useState<string | null>(null);
   const [reportActionMessage, setReportActionMessage] = useState("");
   const [deleteConfirmReport, setDeleteConfirmReport] = useState<Report | null>(null);
+
+  // Report details modal state
+  const [selectedReportForDetails, setSelectedReportForDetails] = useState<Report | null>(null);
+  const [linkedPredictionForDetails, setLinkedPredictionForDetails] = useState<any>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
 
   // Set default tab based on role - public users start on health advisory, the management view starts on the admin workspace
   const [activeTab, setActiveTab] = useState(
@@ -230,6 +236,33 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   const closeEditReport = () => {
     setEditingReport(null);
+  };
+
+  const openReportDetails = async (report: Report) => {
+    const reportId = report._id || String(report.id);
+    setSelectedReportForDetails(report);
+    setLinkedPredictionForDetails(null);
+    setDetailsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/reports/${reportId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLinkedPredictionForDetails(data.prediction);
+      }
+    } catch (err) {
+      console.error("Failed to fetch report details:", err);
+    } finally {
+      setDetailsLoading(false);
+    }
+  };
+
+  const closeReportDetails = () => {
+    setSelectedReportForDetails(null);
+    setLinkedPredictionForDetails(null);
   };
 
   const handleUpdateReport = async (e: React.FormEvent) => {
@@ -1353,6 +1386,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                             </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => openReportDetails(report)}
+                                  className="px-3 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition-colors"
+                                >
+                                  Details
+                                </button>
                                 {canEditReport(report) && (
                                   <button
                                     onClick={() => openEditReport(report)}
@@ -1370,9 +1409,6 @@ const Dashboard: React.FC<DashboardProps> = ({
                                     {reportActionInProgress === (report._id || String(report.id)) ? "..." : "Delete"}
                                   </button>
                                 )}
-                                {!canEditReport(report) && !canDeleteReport() && (
-                                  <span className="text-xs text-gray-400">—</span>
-                                )}
                               </div>
                             </td>
                           </tr>
@@ -1382,6 +1418,192 @@ const Dashboard: React.FC<DashboardProps> = ({
                   </table>
                 </div>
               </div>
+
+              {/* Report Details Modal */}
+              {selectedReportForDetails && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+                    <div className="sticky top-0 bg-white flex items-center justify-between p-6 border-b border-gray-100 z-10">
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900">
+                          Report & Risk Details
+                        </h2>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5">ID: {selectedReportForDetails._id || selectedReportForDetails.id}</p>
+                      </div>
+                      <button
+                        onClick={closeReportDetails}
+                        className="text-gray-450 hover:text-gray-600 font-semibold text-lg"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="p-6 space-y-6">
+                      {/* Section 1: Report Information */}
+                      <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">Case Information</h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm">
+                          <div>
+                            <span className="text-gray-500 block">Reporter</span>
+                            <span className="font-semibold text-gray-900">{selectedReportForDetails.reporter_type} ({selectedReportForDetails.reporter_id})</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block">Age / Sex</span>
+                            <span className="font-semibold text-gray-900">{selectedReportForDetails.patient_age} years / {selectedReportForDetails.sex}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block">Severity Evaluated</span>
+                            <span className={`inline-block font-semibold px-2 py-0.5 rounded-full text-xs mt-0.5 ${
+                              selectedReportForDetails.severity === "Critical" || selectedReportForDetails.severity === "Severe"
+                                ? "bg-red-100 text-red-800"
+                                : selectedReportForDetails.severity === "Moderate"
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-green-100 text-green-800"
+                            }`}>
+                              {selectedReportForDetails.severity || "N/A"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block">District</span>
+                            <span className="font-semibold text-gray-900">{selectedReportForDetails.location || "N/A"}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block">Village / Area</span>
+                            <span className="font-semibold text-gray-900">{selectedReportForDetails.village_area || "N/A"}</span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 block">Reported At</span>
+                            <span className="font-semibold text-gray-900">{new Date(selectedReportForDetails.created_at || selectedReportForDetails.reported_at).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 space-y-2 text-sm">
+                          <div>
+                            <span className="text-gray-500 block mb-1">Symptoms Reported</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {selectedReportForDetails.symptoms && selectedReportForDetails.symptoms.length > 0 ? (
+                                selectedReportForDetails.symptoms.map((s, idx) => (
+                                  <span key={idx} className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 font-medium text-xs">
+                                    {s}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-gray-400 italic">No symptoms specified</span>
+                              )}
+                            </div>
+                          </div>
+                          {selectedReportForDetails.remarks && (
+                            <div className="pt-2">
+                              <span className="text-gray-500 block">Remarks</span>
+                              <p className="text-gray-700 bg-gray-50 p-3 rounded-lg border border-gray-100 italic">{selectedReportForDetails.remarks}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Section 2: ML / Rule Prediction Analysis */}
+                      <div className="border-t border-gray-100 pt-6">
+                        <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-400 mb-3">Model Risk Assessment</h3>
+
+                        {detailsLoading ? (
+                          <div className="flex flex-col items-center py-6">
+                            <LoadingSpinner size="md" />
+                            <p className="text-gray-500 text-xs mt-2">Retrieving predictive model assessment...</p>
+                          </div>
+                        ) : linkedPredictionForDetails ? (
+                          <div className="space-y-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                              <div className="flex items-center gap-3">
+                                <div>
+                                  <p className="text-xs text-gray-500 font-semibold uppercase">Prediction Risk Level</p>
+                                  <div className="mt-1">
+                                    <RiskIndicator
+                                      riskLevel={linkedPredictionForDetails.riskLevel}
+                                      confidence={linkedPredictionForDetails.confidence}
+                                      size="medium"
+                                      showLabel={true}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex-1 sm:max-w-xs">
+                                <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                  <span>Model Confidence Score</span>
+                                  <span className="font-bold">{linkedPredictionForDetails.confidence}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      String(linkedPredictionForDetails.riskLevel).toLowerCase() === 'high'
+                                        ? 'bg-red-500'
+                                        : String(linkedPredictionForDetails.riskLevel).toLowerCase() === 'medium'
+                                        ? 'bg-yellow-500'
+                                        : 'bg-green-500'
+                                    }`}
+                                    style={{ width: `${linkedPredictionForDetails.confidence || 0}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Top Contributing Factors */}
+                            {linkedPredictionForDetails.topFactors && linkedPredictionForDetails.topFactors.length > 0 && (
+                              <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
+                                <span className="text-blue-800 font-semibold text-xs uppercase block mb-2">🎯 Primary Contributing Factors (ML Feature Importance)</span>
+                                <div className="flex flex-wrap gap-2">
+                                  {linkedPredictionForDetails.topFactors.map((factor: string, idx: number) => (
+                                    <span key={idx} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                                      ✨ {factor}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Reasoning */}
+                            {linkedPredictionForDetails.reasoning && (
+                              <div>
+                                <span className="text-gray-500 text-xs font-semibold uppercase block mb-1">Model Decision Explanation</span>
+                                <p className="text-sm text-gray-700 bg-gray-50 p-4 rounded-xl border border-gray-100 font-medium">
+                                  {linkedPredictionForDetails.reasoning}
+                                </p>
+                              </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-4 text-xs text-gray-500 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                              <div>
+                                <span>Risk Ingestion Engine:</span>
+                                <span className="font-mono ml-1.5 text-gray-800 font-semibold">
+                                  {linkedPredictionForDetails.modelVersion === "random-forest-v1.0"
+                                    ? "🌲 Random Forest Model API"
+                                    : "📋 Local Rule-Based Engine (Fallback)"}
+                                </span>
+                              </div>
+                              <div>
+                                <span>Model Version:</span>
+                                <span className="font-mono ml-1.5 text-gray-800 font-semibold">{linkedPredictionForDetails.modelVersion || "symptom-analyzer-v1.0"}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-center text-sm text-gray-500">
+                            ℹ️ No high-risk prediction was recorded for this case. Standard low/medium risk reports are logged for tracking but do not trigger automated outbreak alerts.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="sticky bottom-0 bg-gray-50 flex justify-end gap-3 p-4 border-t border-gray-100">
+                      <button
+                        onClick={closeReportDetails}
+                        className="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium text-sm"
+                      >
+                        Close Details
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Edit Report Modal */}
               {editingReport && (
