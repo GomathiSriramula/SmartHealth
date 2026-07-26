@@ -3,14 +3,18 @@ import LandingPage from "./components/LandingPage";
 import Dashboard from "./components/Dashboard";
 import Login from "./components/Login";
 import Register from "./components/Register";
+import ForgotPassword from "./components/ForgotPassword";
+import ResetPassword from "./components/ResetPassword";
 
 function App() {
   const [currentView, setCurrentView] = useState<
-    "landing" | "dashboard" | "login" | "register"
+    "landing" | "dashboard" | "login" | "register" | "forgot-password" | "reset-password"
   >("landing");
   const [token, setToken] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [resetToken, setResetToken] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -21,6 +25,23 @@ function App() {
       setToken(savedToken);
       setUsername(savedUsername);
       setUserRole(savedRole || "USER");
+    }
+  }, []);
+
+  // Detect a password-reset link (e.g. /reset-password?token=...&email=...)
+  // emailed by /auth/forgot-password. The app has no router — this is a
+  // one-time check of the initial URL on load.
+  useEffect(() => {
+    if (window.location.pathname === "/reset-password") {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get("token") || "";
+      const urlEmail = params.get("email") || "";
+      setResetToken(urlToken);
+      setResetEmail(urlEmail);
+      setCurrentView("reset-password");
+      // Clean the token out of the URL/history so it isn't re-processed on
+      // refresh or left visible in the address bar longer than necessary.
+      window.history.replaceState({}, "", "/");
     }
   }, []);
 
@@ -69,11 +90,23 @@ function App() {
         <Login
           onLoginSuccess={handleLoginSuccess}
           onShowRegister={() => setCurrentView("register")}
+          onShowForgotPassword={() => setCurrentView("forgot-password")}
         />
       )}
       {currentView === "register" && (
         <Register
           onRegisterSuccess={handleRegisterSuccess}
+          onShowLogin={() => setCurrentView("login")}
+        />
+      )}
+      {currentView === "forgot-password" && (
+        <ForgotPassword onShowLogin={() => setCurrentView("login")} />
+      )}
+      {currentView === "reset-password" && (
+        <ResetPassword
+          token={resetToken}
+          email={resetEmail}
+          onResetSuccess={() => setCurrentView("login")}
           onShowLogin={() => setCurrentView("login")}
         />
       )}

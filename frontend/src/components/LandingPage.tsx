@@ -10,6 +10,9 @@ interface LandingStats {
   atRisk: number;
   alertZones: number;
   totalMonitored: number;
+  totalReportsProcessed: number;
+  districtsMonitored: number;
+  totalAlertsIssued: number;
 }
 
 const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
@@ -17,7 +20,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
     healthyAreas: 87,
     atRisk: 10,
     alertZones: 3,
-    totalMonitored: 0
+    totalMonitored: 0,
+    totalReportsProcessed: 0,
+    districtsMonitored: 0,
+    totalAlertsIssued: 0,
   });
   const [loading, setLoading] = useState(true);
 
@@ -37,7 +43,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         healthyAreas: data.healthyAreas ?? 87,
         atRisk: data.atRisk ?? 10,
         alertZones: data.alertZones ?? 3,
-        totalMonitored: data.totalMonitored ?? 0
+        totalMonitored: data.totalMonitored ?? 0,
+        totalReportsProcessed: data.totalReportsProcessed ?? 0,
+        districtsMonitored: data.districtsMonitored ?? 0,
+        totalAlertsIssued: data.totalAlertsIssued ?? 0,
       });
     } catch (error) {
       console.error('Error fetching landing stats:', error);
@@ -58,7 +67,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
             </div>
-            <span className="text-xl font-bold text-gray-800">HealthGuard</span>
+            <span className="text-xl font-bold text-gray-800">SmartHealth</span>
           </div>
           <button
             onClick={onGetStarted}
@@ -88,7 +97,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
                 >
                   Get Started
                 </button>
-                <button className="px-8 py-4 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold hover:border-gray-400 transition-colors">
+                <button
+                  onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="px-8 py-4 border-2 border-gray-300 text-gray-700 rounded-xl font-semibold hover:border-gray-400 transition-colors"
+                >
                   Learn More
                 </button>
               </div>
@@ -126,7 +138,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
       </section>
 
       {/* Features Section */}
-      <section className="px-6 py-20 bg-white/50">
+      <section id="features" className="px-6 py-20 bg-white/50">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">Comprehensive Health Surveillance</h2>
@@ -206,16 +218,22 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
               <div className="text-gray-600">Continuous Monitoring</div>
             </div>
             <div>
-              <div className="text-4xl font-bold text-green-600 mb-2">95%</div>
-              <div className="text-gray-600">Early Detection Rate</div>
+              <div className="text-4xl font-bold text-green-600 mb-2">
+                {loading ? '...' : `${stats.totalReportsProcessed.toLocaleString()}+`}
+              </div>
+              <div className="text-gray-600">Reports Processed</div>
             </div>
             <div>
-              <div className="text-4xl font-bold text-purple-600 mb-2">500+</div>
-              <div className="text-gray-600">Communities Protected</div>
+              <div className="text-4xl font-bold text-purple-600 mb-2">
+                {loading ? '...' : stats.districtsMonitored.toLocaleString()}
+              </div>
+              <div className="text-gray-600">Districts Monitored</div>
             </div>
             <div>
-              <div className="text-4xl font-bold text-red-600 mb-2">&lt;2min</div>
-              <div className="text-gray-600">Alert Response Time</div>
+              <div className="text-4xl font-bold text-red-600 mb-2">
+                {loading ? '...' : stats.totalAlertsIssued.toLocaleString()}
+              </div>
+              <div className="text-gray-600">Outbreak Alerts Issued</div>
             </div>
           </div>
         </div>
@@ -226,7 +244,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
         <div className="max-w-4xl mx-auto text-center text-white">
           <h2 className="text-4xl font-bold mb-6">Ready to Protect Your Community?</h2>
           <p className="text-xl mb-8 opacity-90">
-            Join hundreds of health departments already using HealthGuard to prevent disease outbreaks
+            Join health workers and public health teams using SmartHealth to detect and respond to disease outbreaks faster
           </p>
           <button
             onClick={onGetStarted}

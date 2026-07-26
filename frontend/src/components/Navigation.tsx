@@ -1,14 +1,21 @@
+import { useState } from "react";
+import ChangePasswordModal from "./ChangePasswordModal";
+
 interface NavigationProps {
   onBackToLanding: () => void;
   username?: string;
   onLogout?: () => void;
+  token?: string;
 }
 
 const Navigation: React.FC<NavigationProps> = ({
   onBackToLanding,
   username,
   onLogout,
+  token,
 }) => {
+  const [showChangePassword, setShowChangePassword] = useState(false);
+
   return (
     <header className="bg-white shadow-sm border-b sticky top-0 z-50">
       <div className="px-6 py-4">
@@ -51,7 +58,7 @@ const Navigation: React.FC<NavigationProps> = ({
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-800">
-                  HealthGuard Dashboard
+                  SmartHealth Dashboard
                 </h1>
                 <p className="text-sm text-gray-500">
                   Smart Community Health Monitoring
@@ -89,6 +96,29 @@ const Navigation: React.FC<NavigationProps> = ({
               </div>
             )}
 
+            {token && (
+              <button
+                onClick={() => setShowChangePassword(true)}
+                className="flex items-center space-x-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Change Password"
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+                  ></path>
+                </svg>
+                <span className="text-sm font-medium hidden md:inline">Change Password</span>
+              </button>
+            )}
+
             {onLogout && (
               <button
                 onClick={onLogout}
@@ -114,6 +144,9 @@ const Navigation: React.FC<NavigationProps> = ({
           </div>
         </div>
       </div>
+      {showChangePassword && token && (
+        <ChangePasswordModal token={token} onClose={() => setShowChangePassword(false)} />
+      )}
     </header>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { API_URL } from "./api";
@@ -33,7 +33,7 @@ const OutbreakMap: React.FC<OutbreakMapProps> = ({ token, userRole }) => {
     const [error, setError] = useState("");
     const [statusFilter, setStatusFilter] = useState<"active" | "all">("active");
 
-    const fetchLocations = async () => {
+    const fetchLocations = useCallback(async () => {
         setLoading(true);
         try {
             const headers: HeadersInit = {};
@@ -56,13 +56,13 @@ const OutbreakMap: React.FC<OutbreakMapProps> = ({ token, userRole }) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [token, statusFilter, userRole]);
 
     useEffect(() => {
         fetchLocations();
         const interval = setInterval(fetchLocations, 60000); // refresh every minute
         return () => clearInterval(interval);
-    }, [token, statusFilter, userRole]);
+    }, [fetchLocations]);
 
     // Roughly centered on Telangana
     const center: [number, number] = [17.9, 79.3];

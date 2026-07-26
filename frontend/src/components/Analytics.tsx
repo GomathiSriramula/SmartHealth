@@ -143,7 +143,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ token, userRole }) => {
     } finally {
       setLoading(false);
     }
-  }, [token, timeRange, API_URL]);
+  }, [token, timeRange]);
 
   // Initial fetch
   useEffect(() => {

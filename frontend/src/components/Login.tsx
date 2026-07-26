@@ -5,9 +5,10 @@ import { API_URL } from "./api";
 interface LoginProps {
   onLoginSuccess: (token: string, username: string, role: string) => void;
   onShowRegister: () => void;
+  onShowForgotPassword: () => void;
 }
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister, onShowForgotPassword }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,8 +35,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
       const data = await res.json();
       // Use username and role from server response
       onLoginSuccess(data.token, data.username || email, data.role || 'USER');
-    } catch (err: any) {
-      setError(err.message || "Login failed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
@@ -87,9 +88,18 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Password
+              </label>
+              <button
+                type="button"
+                onClick={onShowForgotPassword}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Forgot password?
+              </button>
+            </div>
             <input
               type="password"
               value={password}

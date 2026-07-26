@@ -97,7 +97,7 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
     } finally {
       setActionInProgress(null);
     }
-  }, [API_URL, getHeaders, selectedAlert, filterStatus]);
+  }, [getHeaders, selectedAlert, filterStatus]);
 
   const resendNotification = useCallback(async (alertId: string) => {
     setActionInProgress(alertId);
@@ -126,7 +126,7 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
     } finally {
       setActionInProgress(null);
     }
-  }, [API_URL, getHeaders, selectedAlert]);
+  }, [getHeaders, selectedAlert]);
 
   const toggleExpandAlert = (alertId: string) => {
     const newExpanded = new Set(expandedAlerts);
@@ -204,7 +204,7 @@ const AlertsPanel: React.FC<AlertsPanelProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [API_URL, filterStatus, filterLocation, getHeaders]);
+  }, [filterStatus, filterLocation, getHeaders]);
 
   useEffect(() => {
     fetchAlerts();

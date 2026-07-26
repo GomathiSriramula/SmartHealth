@@ -76,12 +76,10 @@ function addToLocationBucket(bucketMap, rawLocation, onCreate, onExisting) {
  * POST /predictions
  * Create a new prediction and notify all registered users
  * 
- * SECURITY NOTE (Academic Project Design):
- * - This endpoint is intentionally secured with authentication and role-based location validation.
- * - ADMIN users are restricted to their assigned village location.
- * - USER and OPERATOR roles have no location restrictions.
+ * Role-based access control (matches POST /reports):
+ * - ADMIN/OPERATOR only — USER is forbidden (blocked by requireRole below).
+ * - OPERATOR is further restricted to their own assigned district via locationGuard().
  * - Email notifications trigger automatically for HIGH risk predictions.
- * - This design choice was made to keep the system simple and safe for an academic monitoring project.
  * 
  * Request body:
  * {
@@ -96,7 +94,7 @@ function addToLocationBucket(bucketMap, rawLocation, onCreate, onExisting) {
  *   "confidence": 85
  * }
  */
-router.post("/predictions", authMiddleware, locationGuard(), async (req, res) => {
+router.post("/predictions", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locationGuard(), async (req, res) => {
   try {
     const {
       predictionType,
@@ -240,7 +238,7 @@ router.post("/predictions", authMiddleware, locationGuard(), async (req, res) =>
  * - skip: number of results to skip (default: 0)
  * - sort: sort order (newest or oldest, default: newest)
  */
-router.get("/predictions", authMiddleware, async (req, res) => {
+router.get("/predictions", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     const { riskLevel, limit = 50, skip = 0, sort = "newest" } = req.query;
 
@@ -283,9 +281,28 @@ router.get("/predictions", authMiddleware, async (req, res) => {
  * GET /predictions/landing-stats
  * Public endpoint for landing page statistics
  * Returns overall health monitoring statistics based on recent predictions
+ *
+ * totalReportsProcessed / districtsMonitored are ALL-TIME, real aggregate
+ * counts (not fabricated marketing copy) — safe to expose pre-auth since
+ * they carry no patient-level detail, matching the privacy boundary used
+ * everywhere else in this app (aggregate counts only, never raw case data).
  */
 router.get("/predictions/landing-stats", async (req, res) => {
   try {
+    const [totalReportsProcessed, distinctLocations, totalAlertsIssued] = await Promise.all([
+      CaseReport.countDocuments({}),
+      CaseReport.distinct("location"),
+      require("../models/Alert").countDocuments({}),
+    ]);
+
+    const districtsMonitored = new Set(
+      distinctLocations
+        .map((loc) => normalizeLocationKey(loc))
+        .filter(Boolean)
+    ).size;
+
+    const realStats = { totalReportsProcessed, districtsMonitored, totalAlertsIssued };
+
     // Get predictions from last 30 days for landing page stats
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -300,7 +317,8 @@ router.get("/predictions/landing-stats", async (req, res) => {
         healthyAreas: 87,
         atRisk: 10,
         alertZones: 3,
-        totalMonitored: recentPredictions.length
+        totalMonitored: recentPredictions.length,
+        ...realStats,
       });
     }
 
@@ -328,7 +346,8 @@ router.get("/predictions/landing-stats", async (req, res) => {
       healthyAreas: healthyAreas >= 0 ? healthyAreas : 0,
       atRisk,
       alertZones,
-      totalMonitored: total
+      totalMonitored: total,
+      ...realStats,
     });
 
   } catch (error) {
@@ -338,7 +357,10 @@ router.get("/predictions/landing-stats", async (req, res) => {
       healthyAreas: 87,
       atRisk: 10,
       alertZones: 3,
-      totalMonitored: 0
+      totalMonitored: 0,
+      totalReportsProcessed: 0,
+      districtsMonitored: 0,
+      totalAlertsIssued: 0,
     });
   }
 });
@@ -490,7 +512,7 @@ router.delete("/predictions/untracked", authMiddleware, requireRole('ADMIN'), as
   }
 });
 
-router.get("/predictions/:id", authMiddleware, async (req, res) => {
+router.get("/predictions/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -556,7 +578,7 @@ router.post("/predictions/:id/notify", authMiddleware, requireRole('ADMIN', 'OPE
  * DELETE /predictions/:id
  * Delete a specific prediction
  */
-router.delete("/predictions/:id", authMiddleware, async (req, res) => {
+router.delete("/predictions/:id", authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -741,19 +763,15 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       timeSeriesData.push(dailyData[date]);
     });
 
-    // Location hotspots from both predictions and case reports.
+    // Location hotspots from case reports — the canonical "a case happened
+    // here" event. Predictions must NOT also feed this count: every HIGH-risk
+    // report gets a linked Prediction (and CSV bulk-upload creates one for
+    // EVERY row, regardless of risk), so adding predictions.length on top of
+    // caseReports.length double-counted the same case, inflating "X cases"
+    // by ~2x for any location with mostly high-risk or CSV-sourced reports.
     // Grouped by a normalized (trimmed, lowercased) key so "Peddapalli" and
     // "peddapalli" count as the SAME place instead of two separate rows.
     const locationCounts = {};
-
-    predictions.forEach((p) => {
-      addToLocationBucket(
-        locationCounts,
-        p.location,
-        (label) => ({ label, count: 1 }),
-        (entry) => { entry.count += 1; }
-      );
-    });
 
     caseReports.forEach((report) => {
       addToLocationBucket(
@@ -874,7 +892,12 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         totalPredictions,
         recentPredictions,
         totalCaseReports,
-        recentCaseReports: recentCaseReports.length,
+        // 🔑 FIX: was recentCaseReports.length — but that array is
+        // caseReports.slice(0, 10), capped for the detail list below. This
+        // stat is meant to be the real count of reports in the selected
+        // time range, so it must come from the unsliced `caseReports` array
+        // (same pattern as recentPredictions: predictions.length above).
+        recentCaseReports: caseReports.length,
         averageConfidence: Math.round(averageConfidence * 100) / 100,
         timeRange: `Last ${daysAgo} days`,
         lastUpdated: new Date().toISOString()

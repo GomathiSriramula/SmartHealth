@@ -76,6 +76,10 @@ const UserSchema = new mongoose.Schema({
     village: String
   },
   created_at: { type: Date, default: Date.now },
+  // Forgot-password flow: a random token (not the raw value users click on --
+  // see auth.js) plus its expiry. Both null when no reset is pending.
+  resetPasswordTokenHash: { type: String, default: null },
+  resetPasswordExpires: { type: Date, default: null },
 });
 
 const User = mongoose.model("User", UserSchema, "users");

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Alert from "./Alert";
 import LoadingSpinner from "./LoadingSpinner";
 import { API_URL } from "./api";
@@ -19,8 +19,22 @@ interface OperatorFormState {
   district: string;
 }
 
+interface AdminAccount {
+  id: string;
+  username: string;
+  email: string;
+  created_at?: string | null;
+}
+
+interface AdminAccountFormState {
+  username: string;
+  email: string;
+  password: string;
+}
+
 interface AdminOperatorsProps {
   token: string;
+  currentUsername?: string;
 }
 
 const initialForm: OperatorFormState = {
@@ -30,7 +44,13 @@ const initialForm: OperatorFormState = {
   district: "",
 };
 
-const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
+const initialAdminForm: AdminAccountFormState = {
+  username: "",
+  email: "",
+  password: "",
+};
+
+const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername }) => {
   const [operators, setOperators] = useState<OperatorAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -39,15 +59,30 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
   const [form, setForm] = useState<OperatorFormState>(initialForm);
   const [message, setMessage] = useState("");
 
+  // CSV bulk-upload state
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string>("");
+
+  // Admin accounts management state
+  const [admins, setAdmins] = useState<AdminAccount[]>([]);
+  const [adminsLoading, setAdminsLoading] = useState(true);
+  const [adminForm, setAdminForm] = useState<AdminAccountFormState>(initialAdminForm);
+  const [adminSaving, setAdminSaving] = useState(false);
+  const [adminDeletingId, setAdminDeletingId] = useState<string | null>(null);
+  const [adminMessage, setAdminMessage] = useState("");
+
   const headers = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
   };
 
-  const loadOperators = async () => {
+  const loadOperators = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/auth/operators`, { headers });
+      const response = await fetch(`${API_URL}/auth/operators`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || "Failed to load operators");
@@ -55,16 +90,137 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
 
       const data = await response.json();
       setOperators(data.operators || []);
-    } catch (error: any) {
-      setMessage(error.message || "Failed to load operators");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to load operators");
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     loadOperators();
-  }, []);
+  }, [loadOperators]);
+
+  const loadAdmins = useCallback(async () => {
+    setAdminsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/auth/admins`, {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to load admins");
+      }
+      const data = await response.json();
+      setAdmins(data.admins || []);
+    } catch (error) {
+      setAdminMessage(error instanceof Error ? error.message : "Failed to load admins");
+    } finally {
+      setAdminsLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadAdmins();
+  }, [loadAdmins]);
+
+  const handleBulkUpload = async () => {
+    if (!bulkFile) {
+      setBulkResult("Choose a CSV file first.");
+      return;
+    }
+    setBulkUploading(true);
+    setBulkResult("");
+
+    try {
+      const formData = new FormData();
+      formData.append("file", bulkFile);
+
+      const response = await fetch(`${API_URL}/auth/operators/bulk-upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Bulk upload failed");
+      }
+
+      setBulkResult(
+        `Processed ${data.summary.totalRows} row(s): ${data.summary.created} created, ${data.summary.failed} failed.` +
+          (data.errors && data.errors.length > 0
+            ? ` First error: line ${data.errors[0].line} — ${data.errors[0].error}`
+            : "")
+      );
+      setBulkFile(null);
+      await loadOperators();
+    } catch (error) {
+      setBulkResult(error instanceof Error ? error.message : "Bulk upload failed");
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const resetAdminForm = () => setAdminForm(initialAdminForm);
+
+  const handleAdminSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAdminSaving(true);
+    setAdminMessage("");
+
+    try {
+      const response = await fetch(`${API_URL}/auth/admins`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          username: adminForm.username.trim(),
+          email: adminForm.email.trim(),
+          password: adminForm.password.trim(),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Admin creation failed");
+      }
+
+      setAdmins((current) => [data.admin, ...current]);
+      setAdminMessage(`Admin "${data.admin.username}" created successfully.`);
+      resetAdminForm();
+    } catch (error) {
+      setAdminMessage(error instanceof Error ? error.message : "Unable to create admin");
+    } finally {
+      setAdminSaving(false);
+    }
+  };
+
+  const handleAdminDelete = async (admin: AdminAccount) => {
+    const confirmDelete = window.confirm(`Delete admin account "${admin.username}"?`);
+    if (!confirmDelete) return;
+
+    setAdminDeletingId(admin.id);
+    setAdminMessage("");
+
+    try {
+      const response = await fetch(`${API_URL}/auth/admins/${admin.id}`, {
+        method: "DELETE",
+        headers,
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "Admin delete failed");
+      }
+
+      setAdmins((current) => current.filter((a) => a.id !== admin.id));
+      setAdminMessage(`Deleted admin "${admin.username}" successfully.`);
+    } catch (error) {
+      setAdminMessage(error instanceof Error ? error.message : "Unable to delete admin");
+    } finally {
+      setAdminDeletingId(null);
+    }
+  };
 
   const resetForm = () => {
     setForm(initialForm);
@@ -121,8 +277,8 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
 
       setMessage(editingId ? "Operator updated successfully." : "Operator created successfully.");
       resetForm();
-    } catch (error: any) {
-      setMessage(error.message || "Unable to save operator");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to save operator");
     } finally {
       setSaving(false);
     }
@@ -153,8 +309,8 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
         resetForm();
       }
       setMessage("Operator deleted successfully.");
-    } catch (error: any) {
-      setMessage(error.message || "Unable to delete operator");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to delete operator");
     } finally {
       setDeletingId(null);
     }
@@ -295,6 +451,30 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
               </button>
             </div>
           </form>
+
+          <div className="mt-6 border-t border-gray-100 pt-6">
+            <h3 className="text-sm font-semibold text-gray-900">Bulk import from CSV</h3>
+            <p className="mt-1 text-xs text-gray-500">
+              Columns: name (or username), email, password, district. One operator per row.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                className="text-sm text-gray-600"
+              />
+              <button
+                type="button"
+                onClick={handleBulkUpload}
+                disabled={bulkUploading || !bulkFile}
+                className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 disabled:cursor-not-allowed disabled:bg-gray-400"
+              >
+                {bulkUploading ? "Uploading..." : "Upload CSV"}
+              </button>
+            </div>
+            {bulkResult && <p className="mt-2 text-xs text-gray-600">{bulkResult}</p>}
+          </div>
         </section>
 
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -357,6 +537,127 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token }) => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-gray-900">Create Admin Account</h2>
+          <p className="mb-6 text-sm text-gray-500">
+            Previously only possible via .env plus a server restart — this creates an
+            additional ADMIN account directly.
+          </p>
+
+          {adminMessage && (
+            <div className="mb-4">
+              <Alert
+                type={adminMessage.toLowerCase().includes("delet") || adminMessage.toLowerCase().includes("creat") ? "success" : "error"}
+                message={adminMessage}
+                onClose={() => setAdminMessage("")}
+              />
+            </div>
+          )}
+
+          <form onSubmit={handleAdminSubmit} className="space-y-4">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Username</label>
+              <input
+                type="text"
+                value={adminForm.username}
+                onChange={(event) => setAdminForm({ ...adminForm, username: event.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                required
+                disabled={adminSaving}
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Email</label>
+              <input
+                type="email"
+                value={adminForm.email}
+                onChange={(event) => setAdminForm({ ...adminForm, email: event.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                required
+                disabled={adminSaving}
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Password</label>
+              <input
+                type="password"
+                value={adminForm.password}
+                onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                minLength={6}
+                required
+                disabled={adminSaving}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={adminSaving}
+              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+            >
+              {adminSaving ? "Creating..." : "Create Admin"}
+            </button>
+          </form>
+        </section>
+
+        <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900">Current Admins</h2>
+              <p className="text-sm text-gray-500">
+                You cannot delete your own account or the last remaining admin.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadAdmins}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              disabled={adminsLoading}
+            >
+              Refresh
+            </button>
+          </div>
+
+          {adminsLoading ? (
+            <div className="flex items-center justify-center py-12 text-gray-500">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : admins.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-gray-500">
+              No admin accounts found.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {admins.map((admin) => {
+                const isSelf = currentUsername && admin.username === currentUsername;
+                return (
+                  <div
+                    key={admin.id}
+                    className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 p-4"
+                  >
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">
+                        {admin.username} {isSelf && <span className="text-xs text-blue-600">(you)</span>}
+                      </div>
+                      <div className="text-xs text-gray-500">{admin.email}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAdminDelete(admin)}
+                      disabled={Boolean(isSelf) || adminDeletingId === admin.id || admins.length <= 1}
+                      title={isSelf ? "You cannot delete your own account" : admins.length <= 1 ? "Cannot delete the last remaining admin" : undefined}
+                      className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {adminDeletingId === admin.id ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

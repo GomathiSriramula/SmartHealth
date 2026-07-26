@@ -16,4 +16,4 @@
 // If VITE_API_URL isn't set, this falls back to the local dev default so
 // nothing breaks for anyone who hasn't created a .env file yet.
 export const API_URL: string =
-  (import.meta as any).env?.VITE_API_URL || "http://127.0.0.1:5000";
+  import.meta.env?.VITE_API_URL || "http://127.0.0.1:5000";

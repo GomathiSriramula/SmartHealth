@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import LoadingSpinner from "./LoadingSpinner";
 import Alert from "./Alert";
 import StatsCard from "./StatsCard";
@@ -8,6 +8,8 @@ import Analytics from "./Analytics";
 import OutbreakMap from "./OutbreakMap";
 
 import AdminOperators from "./AdminOperators";
+import AdminUsers from "./AdminUsers";
+import AuditLogViewer from "./AuditLogViewer";
 import HealthAdvisory from "./HealthAdvisory";
 import RiskIndicator from "./RiskIndicator";
 import { API_URL } from "./api";
@@ -36,6 +38,14 @@ interface DashboardProps {
   username: string;
   userRole: string;
   onLogout: () => void;
+}
+
+interface PredictionResult {
+  riskLevel: string;
+  confidence: number;
+  reasoning?: string;
+  topFactors?: string[];
+  modelVersion?: string;
 }
 
 interface AlertData {
@@ -105,7 +115,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Report details modal state
   const [selectedReportForDetails, setSelectedReportForDetails] = useState<Report | null>(null);
-  const [linkedPredictionForDetails, setLinkedPredictionForDetails] = useState<any>(null);
+  const [linkedPredictionForDetails, setLinkedPredictionForDetails] = useState<PredictionResult | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
   // Set default tab based on role - public users start on health advisory, the management view starts on the admin workspace
@@ -143,6 +153,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertStats, setAlertStats] = useState({ total: 0, active: 0, resolved: 0 });
+  const [notificationStats, setNotificationStats] = useState({ sent: 0, failed: 0 });
+  const [exportingAlerts, setExportingAlerts] = useState<string | null>(null);
   const [expandedAlerts, setExpandedAlerts] = useState<Set<string>>(new Set());
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
 
@@ -161,7 +173,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 
 
   // Fetch reports from backend
-  const fetchReports = async (showLoading: boolean = true) => {
+  const fetchReports = useCallback(async (showLoading: boolean = true) => {
     if (showLoading) {
       setLoading(true);
     }
@@ -208,11 +220,16 @@ const Dashboard: React.FC<DashboardProps> = ({
         setLoading(false);
       }
     }
-  };
+  }, [token, userRole]);
 
   useEffect(() => {
-    fetchReports();
-  }, [username]);
+    // GET /reports is restricted to ADMIN/OPERATOR server-side — USER never
+    // sees the Reports/Overview tabs that consume this data, so skip the
+    // call entirely rather than firing a request that always 403s.
+    if (userRole === 'ADMIN' || userRole === 'OPERATOR') {
+      fetchReports();
+    }
+  }, [username, userRole, fetchReports]);
 
   const filteredReports = reports.filter((report) => {
     // 1. Search filter: matches village area, reporter id, symptoms, or remarks
@@ -311,9 +328,10 @@ const Dashboard: React.FC<DashboardProps> = ({
       // Cleanup
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
-    } catch (err: any) {
+    } catch (err) {
       console.error(`Export to ${format} failed:`, err);
-      setReportActionMessage(`❌ Export failed: ${err.message || err}`);
+      const errMessage = err instanceof Error ? err.message : String(err);
+      setReportActionMessage(`❌ Export failed: ${errMessage}`);
     } finally {
       setExportingFormat(null);
     }
@@ -410,9 +428,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       setReportActionMessage("✅ Report updated successfully");
       setEditingReport(null);
       await fetchReports(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("❌ Error updating report:", err);
-      setReportActionMessage(`❌ ${err.message || "Failed to update report"}`);
+      setReportActionMessage(`❌ ${err instanceof Error ? err.message : "Failed to update report"}`);
     } finally {
       setReportActionInProgress(null);
     }
@@ -440,9 +458,9 @@ const Dashboard: React.FC<DashboardProps> = ({
       setReportActionMessage("✅ Report deleted successfully");
       setDeleteConfirmReport(null);
       await fetchReports(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("❌ Error deleting report:", err);
-      setReportActionMessage(`❌ ${err.message || "Failed to delete report"}`);
+      setReportActionMessage(`❌ ${err instanceof Error ? err.message : "Failed to delete report"}`);
     } finally {
       setReportActionInProgress(null);
     }
@@ -457,7 +475,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   }, [alertDistrictInput]);
 
   // Fetch alerts from backend
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
     setAlertsLoading(true);
     try {
       const headers: HeadersInit = { "Content-Type": "application/json" };
@@ -500,11 +518,48 @@ const Dashboard: React.FC<DashboardProps> = ({
           active: statsData.stats?.activeAlerts || 0,
           resolved: statsData.stats?.resolvedAlerts || 0,
         });
+        setNotificationStats({
+          sent: statsData.stats?.notificationStats?.notificationsSent || 0,
+          failed: statsData.stats?.notificationStats?.notificationsFailed || 0,
+        });
       }
     } catch (err) {
       console.error('Error fetching alerts:', err);
     } finally {
       setAlertsLoading(false);
+    }
+  }, [token, alertStatusFilter, alertDistrictFilter, userRole]);
+
+  const handleExportAlerts = async (format: "csv" | "excel" | "pdf") => {
+    setExportingAlerts(format);
+    try {
+      const params = new URLSearchParams({ format });
+      if (alertStatusFilter !== "all") params.set("status", alertStatusFilter);
+      if (alertDistrictFilter && userRole !== "OPERATOR") params.set("location", alertDistrictFilter);
+
+      const res = await fetch(`${API_URL}/api/alerts/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Export failed: ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      const extension = format === "excel" ? "xlsx" : format;
+      link.download = `SmartHealth_Alerts_${Date.now()}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error("Error exporting alerts:", err);
+      setMessage(`❌ ${err instanceof Error ? err.message : "Failed to export alerts"}`);
+    } finally {
+      setExportingAlerts(null);
     }
   };
 
@@ -581,14 +636,15 @@ const Dashboard: React.FC<DashboardProps> = ({
     setExpandedAlerts(newExpanded);
   };
 
-  // Load alerts when alerts tab is opened, and whenever filters change
+  // Load alert stats whenever the Alerts or Overview tab is opened (Overview's
+  // "Active Alerts" stat card needs this too), and whenever filters change.
   useEffect(() => {
-    if (activeTab === "alerts") {
+    if (activeTab === "alerts" || activeTab === "overview") {
       fetchAlerts();
       const interval = setInterval(fetchAlerts, 30000); // Refresh every 30s
       return () => clearInterval(interval);
     }
-  }, [activeTab, token, alertStatusFilter, alertDistrictFilter]);
+  }, [activeTab, fetchAlerts]);
 
   // Client-side safety net: even if the backend ignores/partially matches the
   // `location` query param, this guarantees the list reflects the district
@@ -844,6 +900,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         onBackToLanding={onBackToLanding}
         username={username}
         onLogout={onLogout}
+        token={token}
       />
 
       {/* Main Content */}
@@ -1042,6 +1099,48 @@ const Dashboard: React.FC<DashboardProps> = ({
                 }
               />
             )}
+            {userRole === 'ADMIN' && (
+              <TabButton
+                id="users"
+                label="Community Users"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
+            {userRole === 'ADMIN' && (
+              <TabButton
+                id="audit-log"
+                label="Audit Log"
+                icon={
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    ></path>
+                  </svg>
+                }
+              />
+            )}
 
 
           </div>
@@ -1154,8 +1253,8 @@ const Dashboard: React.FC<DashboardProps> = ({
                 />
 
                 <StatsCard
-                  title="Response Time"
-                  value="<2min"
+                  title="Active Alerts"
+                  value={alertStats.active}
                   color="purple"
                   icon={
                     <svg
@@ -1168,7 +1267,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth="2"
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"
                       ></path>
                     </svg>
                   }
@@ -2357,10 +2456,22 @@ const Dashboard: React.FC<DashboardProps> = ({
                     Clear filters
                   </button>
                 )}
+                <div className="flex gap-2">
+                  {(["csv", "excel", "pdf"] as const).map((format) => (
+                    <button
+                      key={format}
+                      onClick={() => handleExportAlerts(format)}
+                      disabled={exportingAlerts !== null}
+                      className="px-3 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors text-sm disabled:cursor-not-allowed disabled:bg-gray-400"
+                    >
+                      {exportingAlerts === format ? "Exporting..." : `Export ${format.toUpperCase()}`}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-red-50 rounded-lg p-4 border border-red-200">
                   <div className="text-sm font-semibold text-red-700">Active</div>
                   <div className="text-3xl font-bold text-red-600">{alertStats.active}</div>
@@ -2372,6 +2483,17 @@ const Dashboard: React.FC<DashboardProps> = ({
                 <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                   <div className="text-sm font-semibold text-green-700">Resolved</div>
                   <div className="text-3xl font-bold text-green-600">{alertStats.resolved}</div>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+                  <div className="text-sm font-semibold text-purple-700">Notifications</div>
+                  <div className="text-2xl font-bold text-purple-600">
+                    {notificationStats.sent} <span className="text-sm font-normal text-purple-400">sent</span>
+                  </div>
+                  {notificationStats.failed > 0 && (
+                    <div className="text-xs font-semibold text-red-600 mt-0.5">
+                      ⚠️ {notificationStats.failed} failed
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2500,7 +2622,17 @@ const Dashboard: React.FC<DashboardProps> = ({
 
           {/* Management tab - admin only */}
           {activeTab === "operators" && userRole === 'ADMIN' && (
-            <AdminOperators token={token} />
+            <AdminOperators token={token} currentUsername={username} />
+          )}
+
+          {/* Community Users tab - admin only */}
+          {activeTab === "users" && userRole === 'ADMIN' && (
+            <AdminUsers token={token} />
+          )}
+
+          {/* Audit Log tab - admin only */}
+          {activeTab === "audit-log" && userRole === 'ADMIN' && (
+            <AuditLogViewer token={token} />
           )}
 
           {/* Analytics Tab */}

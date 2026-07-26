@@ -63,108 +63,6 @@ router.post("/reports/debug", express.json(), (req, res) => {
 });
 
 /**
- * Analyze health report and determine risk level based on symptoms
- * AND the reporter-selected severity ("Mild"/"Moderate"/"Severe"/"Critical").
- *
- * Severity acts as a FLOOR, never a ceiling: if symptom-keyword analysis
- * already produced a higher risk level, that stands. But "Severe"/"Critical"
- * severity will escalate risk to HIGH even if the free-text symptom list
- * doesn't happen to match the hardcoded keyword list below — a reporter's
- * direct clinical judgement shouldn't be silently ignored.
- *
- * @param {object} report - Health report with symptoms + severity
- * @returns {object} - Risk analysis result
- */
-function analyzeReportRisk(report) {
-  const symptoms = Array.isArray(report.symptoms) ? report.symptoms : [];
-
-  // High-risk symptoms indicating potential water-borne diseases
-  const highRiskSymptoms = [
-    'severe diarrhea', 'diarrhea', 'bloody stool', 'bloody diarrhea',
-    'dehydration', 'severe dehydration', 'cholera', 'typhoid',
-    'dysentery', 'hepatitis', 'severe vomiting', 'high fever with diarrhea'
-  ];
-
-  // Medium-risk symptoms
-  const mediumRiskSymptoms = [
-    'nausea', 'vomiting', 'stomach cramps', 'abdominal pain',
-    'mild fever', 'fatigue', 'weakness', 'headache', 'loss of appetite'
-  ];
-
-  // Normalize symptoms for comparison
-  const normalizedSymptoms = symptoms.map(s => s.toLowerCase().trim());
-
-  // Count matching symptoms
-  const highRiskMatches = normalizedSymptoms.filter(s =>
-    highRiskSymptoms.some(hrs => s.includes(hrs) || hrs.includes(s))
-  ).length;
-
-  const mediumRiskMatches = normalizedSymptoms.filter(s =>
-    mediumRiskSymptoms.some(mrs => s.includes(mrs) || mrs.includes(s))
-  ).length;
-
-  // Determine risk level from symptoms
-  let riskLevel = 'low';
-  let confidence = 50;
-  let reasoning = '';
-
-  if (highRiskMatches >= 2) {
-    riskLevel = 'high';
-    confidence = Math.min(85 + (highRiskMatches * 5), 98);
-    reasoning = `Multiple high-risk symptoms detected: ${highRiskMatches} severe indicators of water-borne disease.`;
-  } else if (highRiskMatches === 1) {
-    riskLevel = 'high';
-    confidence = 75 + (mediumRiskMatches * 3);
-    reasoning = `Critical symptom detected with ${mediumRiskMatches} supporting symptoms.`;
-  } else if (mediumRiskMatches >= 3) {
-    riskLevel = 'medium';
-    confidence = 65 + (mediumRiskMatches * 2);
-    reasoning = `Multiple moderate symptoms suggesting possible water-borne illness.`;
-  } else if (mediumRiskMatches >= 1) {
-    riskLevel = 'low';
-    confidence = 50 + (mediumRiskMatches * 5);
-    reasoning = `Mild symptoms detected. Monitoring recommended.`;
-  } else {
-    riskLevel = 'low';
-    confidence = 40;
-    reasoning = `No specific water-borne disease symptoms identified.`;
-  }
-
-  // 🔑 Factor in the reporter-selected severity as a floor on risk level.
-  // "Critical" and "Severe" escalate to HIGH even if symptom keywords alone
-  // wouldn't have gotten there. Severity can only push risk UP, never down —
-  // a HIGH from symptom analysis is never downgraded because someone picked
-  // "Mild" by mistake.
-  const rank = { low: 0, medium: 1, high: 2 };
-  const severityFloor = {
-    critical: { riskLevel: 'high', confidence: 90 },
-    severe: { riskLevel: 'high', confidence: 80 },
-  };
-
-  const severityKey = typeof report.severity === 'string' ? report.severity.toLowerCase().trim() : '';
-  const floor = severityFloor[severityKey];
-
-  if (floor && rank[floor.riskLevel] > rank[riskLevel]) {
-    reasoning = `Severity marked as "${report.severity}" by reporter — escalated to ${floor.riskLevel.toUpperCase()} regardless of symptom keyword match. ${reasoning}`;
-    riskLevel = floor.riskLevel;
-    confidence = Math.max(confidence, floor.confidence);
-  } else if (floor) {
-    // Symptom analysis already reached this level or higher — just make sure
-    // confidence reflects the reporter's severity input too.
-    confidence = Math.max(confidence, floor.confidence);
-  }
-
-  return {
-    riskLevel,
-    confidence,
-    reasoning,
-    highRiskSymptoms: highRiskMatches,
-    mediumRiskSymptoms: mediumRiskMatches,
-    severity: report.severity || null,
-  };
-}
-
-/**
  * Create prediction and send email notification if HIGH RISK
  * @param {object} report - Created health report
  * @param {object} analysis - Risk analysis result
@@ -381,7 +279,7 @@ router.post("/reports", authMiddleware, requireRole('ADMIN', 'OPERATOR'), locati
   }
 });
 
-router.get("/reports", authMiddleware, async (req, res) => {
+router.get("/reports", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     const skip = parseInt(req.query.skip || "0", 10) || 0;
     const limit = Math.min(parseInt(req.query.limit || "100", 10) || 100, 10000);
@@ -720,7 +618,7 @@ router.get("/reports/export", authMiddleware, requireRole('ADMIN', 'OPERATOR'), 
   }
 });
 
-router.get("/reports/:id", authMiddleware, async (req, res) => {
+router.get("/reports/:id", authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ error: "Invalid report ID" });

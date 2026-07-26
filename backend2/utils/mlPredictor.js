@@ -2,6 +2,38 @@ const axios = require('axios');
 
 // ML Predictor helper for SmartHealth ML integration
 
+const RISK_RANK = { low: 0, medium: 1, high: 2 };
+const SEVERITY_FLOOR = {
+  critical: { riskLevel: 'high', confidence: 90 },
+  severe: { riskLevel: 'high', confidence: 80 },
+};
+
+/**
+ * Severity acts as a FLOOR, never a ceiling: a reporter marking a case
+ * "Critical"/"Severe" must escalate risk to HIGH regardless of what the
+ * underlying model (ML or rule-based) predicted from symptoms alone — a
+ * clinician's direct judgement shouldn't be silently overridden just
+ * because the model's symptom/severity correlation wasn't strong enough
+ * to clear the HIGH threshold on its own. Applied uniformly to BOTH
+ * prediction paths so this guarantee holds whether or not the ML service
+ * is reachable.
+ */
+function applySeverityFloor(riskLevel, confidence, reasoning, severity) {
+  const severityKey = typeof severity === 'string' ? severity.toLowerCase().trim() : '';
+  const floor = SEVERITY_FLOOR[severityKey];
+  if (!floor) return { riskLevel, confidence, reasoning };
+
+  if (RISK_RANK[floor.riskLevel] > RISK_RANK[riskLevel]) {
+    return {
+      riskLevel: floor.riskLevel,
+      confidence: Math.max(confidence, floor.confidence),
+      reasoning: `Severity marked as "${severity}" by reporter — escalated to ${floor.riskLevel.toUpperCase()} regardless of model output. ${reasoning}`,
+    };
+  }
+
+  return { riskLevel, confidence: Math.max(confidence, floor.confidence), reasoning };
+}
+
 function analyzeReportRiskRuleBased(report) {
   const symptoms = Array.isArray(report.symptoms) ? report.symptoms : [];
   const highRiskSymptoms = [
@@ -48,27 +80,12 @@ function analyzeReportRiskRuleBased(report) {
     reasoning = `No specific water-borne disease symptoms identified.`;
   }
 
-  const rank = { low: 0, medium: 1, high: 2 };
-  const severityFloor = {
-    critical: { riskLevel: 'high', confidence: 90 },
-    severe: { riskLevel: 'high', confidence: 80 },
-  };
-
-  const severityKey = typeof report.severity === 'string' ? report.severity.toLowerCase().trim() : '';
-  const floor = severityFloor[severityKey];
-
-  if (floor && rank[floor.riskLevel] > rank[riskLevel]) {
-    reasoning = `Severity marked as "${report.severity}" by reporter — escalated to ${floor.riskLevel.toUpperCase()} regardless of symptom keyword match. ${reasoning}`;
-    riskLevel = floor.riskLevel;
-    confidence = Math.max(confidence, floor.confidence);
-  } else if (floor) {
-    confidence = Math.max(confidence, floor.confidence);
-  }
+  const floored = applySeverityFloor(riskLevel, confidence, reasoning, report.severity);
 
   return {
-    riskLevel,
-    confidence,
-    reasoning,
+    riskLevel: floored.riskLevel,
+    confidence: floored.confidence,
+    reasoning: floored.reasoning,
     highRiskSymptoms: highRiskMatches,
     mediumRiskSymptoms: mediumRiskMatches,
     severity: report.severity || null,
@@ -91,10 +108,18 @@ async function getPredictionWithFallback(report) {
     if (response.status === 200 && response.data) {
       const mlData = response.data;
       console.log(`✅ [ML Predictor] ML prediction successful. Risk: ${mlData.riskLevel}, Confidence: ${mlData.confidence}%`);
+
+      const floored = applySeverityFloor(
+        (mlData.riskLevel || 'low').toLowerCase(),
+        mlData.confidence,
+        mlData.reasoning,
+        report.severity
+      );
+
       return {
-        riskLevel: mlData.riskLevel,
-        confidence: mlData.confidence,
-        reasoning: mlData.reasoning,
+        riskLevel: floored.riskLevel,
+        confidence: floored.confidence,
+        reasoning: floored.reasoning,
         topFactors: mlData.topFactors || [],
         modelVersion: mlData.modelVersion || 'random-forest-v1.0',
         highRiskSymptoms: 0,

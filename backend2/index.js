@@ -11,6 +11,7 @@ const authRouter = require("./routes/auth");
 const predictionsRouter = require("./routes/predictions");
 const uploadsRouter = require("./routes/uploads");
 const alertsApiRouter = require("./routes/alertsApi");
+const auditLogsRouter = require("./routes/auditLogs");
 
 const { ensureDefaultAdmin } = require("./utils/auth");
 
@@ -47,6 +48,11 @@ const authLimiter = rateLimit({
 });
 app.use("/auth/login", authLimiter);
 app.use("/auth/register", authLimiter);
+// Same protection for forgot/reset-password: both are unauthenticated public
+// endpoints, and forgot-password sends a real email per request, so without
+// a limit here it could be used to spam an arbitrary target's inbox.
+app.use("/auth/forgot-password", authLimiter);
+app.use("/auth/reset-password", authLimiter);
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
@@ -75,6 +81,31 @@ app.use("/", authRouter);
 app.use("/", predictionsRouter);
 app.use("/", uploadsRouter);
 app.use("/api", alertsApiRouter);
+app.use("/", auditLogsRouter);
+
+// JSON 404 for anything that didn't match a route above — keeps error
+// responses consistent with the rest of the JSON API instead of Express's
+// default HTML "Cannot GET /x" page.
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// Global error handler (must be declared last, with 4 args, for Express to
+// treat it as one). Without this, an uncaught error — e.g. malformed JSON
+// in a request body, which body-parser throws on before any route handler
+// runs — falls through to Express's default error handler, which renders
+// a full server-side stack trace (absolute file paths, dependency internals)
+// as the HTTP response body. That page is reachable pre-authentication on
+// any POST endpoint, so it's a real information disclosure, not just a
+// cosmetic issue. Log the real error server-side; never send it to the client.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  console.error("Unhandled error:", err);
+  const status = Number.isInteger(err.status) ? err.status : 500;
+  res.status(status).json({
+    error: status === 400 ? "Invalid request" : "Internal server error",
+  });
+});
 
 const PORT = process.env.PORT || 5000;
 

@@ -1,5 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const XLSX = require('xlsx');
+const PDFDocument = require('pdfkit');
 const Alert = require('../models/Alert');
 const { sendAlertNotification } = require('../services/alertNotifier');
 const { authMiddleware, requireRole, buildDistrictFilter, operatorMatchesDistrict } = require('../utils/auth');
@@ -75,9 +77,106 @@ router.get('/alerts', authMiddleware, async (req, res) => {
 });
 
 /**
+ * GET /api/alerts/export?format=csv|excel|pdf
+ * Export the alerts list (same filters as GET /api/alerts). Registered
+ * BEFORE /alerts/:id so "export" is never captured by the :id param.
+ *
+ * Role-based access control (matches GET /api/alerts):
+ * - ADMIN: all alerts, optionally filtered by location/status
+ * - OPERATOR: restricted to their own assigned district via buildDistrictFilter
+ */
+router.get('/alerts/export', authMiddleware, requireRole('ADMIN', 'OPERATOR'), async (req, res) => {
+  try {
+    const format = (req.query.format || 'csv').toLowerCase();
+    const { location, status = 'all' } = req.query;
+
+    const filter = buildDistrictFilter(req.user);
+    if (location) {
+      const trimmedLocation = location.trim();
+      if (trimmedLocation) {
+        filter.location = new RegExp(trimmedLocation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      }
+    }
+    if (status !== 'all') filter.status = status;
+
+    const alerts = await Alert.find(filter).sort({ createdAt: -1 }).limit(5000).lean();
+
+    const headers = ['Created At', 'Location', 'Risk Level', 'Status', 'Reason', 'Notification Sent', 'Resolved At', 'Resolved Reason'];
+    const rows = alerts.map((a) => [
+      new Date(a.createdAt).toLocaleString(),
+      a.location,
+      a.riskLevel,
+      a.status,
+      a.reason,
+      a.notificationSent ? 'Yes' : 'No',
+      a.resolvedAt ? new Date(a.resolvedAt).toLocaleString() : '',
+      a.resolvedReason || '',
+    ]);
+
+    if (format === 'excel') {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, 'Alerts');
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="SmartHealth_Alerts_${Date.now()}.xlsx"`);
+      return res.send(buffer);
+    }
+
+    if (format === 'pdf') {
+      const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true, layout: 'landscape' });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="SmartHealth_Alerts_${Date.now()}.pdf"`);
+      doc.pipe(res);
+
+      doc.fontSize(16).font('Helvetica-Bold').text('SmartHealth Alerts Export');
+      doc.fontSize(9).font('Helvetica').text(`Generated: ${new Date().toLocaleString()} — ${alerts.length} alerts`);
+      doc.moveDown();
+
+      const colX = [40, 150, 260, 330, 400, 620, 700];
+      const drawHeader = () => {
+        doc.font('Helvetica-Bold').fontSize(8);
+        headers.forEach((label, i) => doc.text(label, colX[i], doc.y, { width: colX[i + 1] ? colX[i + 1] - colX[i] : 120 }));
+        doc.moveDown(0.5);
+        doc.font('Helvetica').fontSize(7);
+      };
+      drawHeader();
+
+      for (const row of rows) {
+        if (doc.y > 520) {
+          doc.addPage();
+          doc.y = 40;
+          drawHeader();
+        }
+        const rowY = doc.y;
+        row.forEach((cell, i) => {
+          const width = colX[i + 1] ? colX[i + 1] - colX[i] - 4 : 110;
+          doc.text(String(cell).slice(0, 50), colX[i], rowY, { width, height: 12 });
+        });
+        doc.y = rowY + 12;
+      }
+
+      doc.end();
+      return;
+    }
+
+    // CSV (default)
+    const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const csvLines = [headers, ...rows].map((row) => row.map(escapeCsv).join(','));
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="SmartHealth_Alerts_${Date.now()}.csv"`);
+    return res.send(csvLines.join('\r\n'));
+  } catch (error) {
+    console.error('[AlertsAPI] Error exporting alerts:', error.message);
+    return res.status(500).json({ success: false, error: 'Failed to export alerts', detail: error.message });
+  }
+});
+
+/**
  * GET /api/alerts/:id
  * Get alert details
- * 
+ *
  * Role-based access control:
  * - ADMIN/OPERATOR/USER: Can access any alert
  */
