@@ -2,10 +2,10 @@
  * Debug script to check case reports, predictions, and alerts
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
-const { CaseReport, Prediction, AuditLog } = require('./models');
-const Alert = require('./models/Alert');
+const { CaseReport, Prediction, AuditLog } = require('../models');
+const Alert = require('../models/Alert');
 
 // Copy the analyzeReportRisk logic from uploads.js
 function analyzeReportRisk(report) {

@@ -3,10 +3,10 @@
  * This handles cases where predictions were created before the alert checker fix
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
-const { Prediction } = require('./models');
-const Alert = require('./models/Alert');
+const { Prediction } = require('../models');
+const Alert = require('../models/Alert');
 
 const ALERT_THRESHOLD = 2;
 const DEFAULT_TIME_WINDOW = 48 * 60 * 60 * 1000;

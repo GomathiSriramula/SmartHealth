@@ -2,11 +2,11 @@
  * Test script to verify alert creation works after fix
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
-const { CaseReport, Prediction } = require('./models');
-const Alert = require('./models/Alert');
-const { checkForAlerts } = require('./services/alertChecker');
+const { CaseReport, Prediction } = require('../models');
+const Alert = require('../models/Alert');
+const { checkForAlerts } = require('../services/alertChecker');
 
 async function testAlertFix() {
   try {

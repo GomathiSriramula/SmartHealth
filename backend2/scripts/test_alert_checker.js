@@ -1,6 +1,6 @@
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const { checkForAlerts } = require("./services/alertChecker");
+const { checkForAlerts } = require("../services/alertChecker");
 
 async function testAlertChecker() {
   const MONGODB_URI =
@@ -17,7 +17,7 @@ async function testAlertChecker() {
     console.log("✅ Connected to MongoDB\n");
 
     // Get the first 2 predictions
-    const Prediction = mongoose.model('Prediction') || require('./models/Prediction');
+    const Prediction = mongoose.model('Prediction') || require('../models/Prediction');
     const predictions = await Prediction.find({})
       .sort({ predictedDate: -1 })
       .limit(2);
@@ -53,7 +53,7 @@ async function testAlertChecker() {
     console.log(`   Full alert: ${result.alert ? JSON.stringify(result.alert, null, 2).substring(0, 200) : 'null'}`);
 
     // Check database
-    const Alert = require('./models/Alert');
+    const Alert = require('../models/Alert');
     const alertCount = await Alert.countDocuments();
     console.log(`\n📊 Alerts in DB: ${alertCount}`);
 

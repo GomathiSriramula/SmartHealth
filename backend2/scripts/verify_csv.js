@@ -4,8 +4,10 @@
 
 const csv = require('csv-parser');
 const fs = require('fs');
+const path = require('path');
 
-const filePath = './case_reports_upload.csv';
+// Sample CSV lives at backend2/ root; this script now lives in backend2/scripts/
+const filePath = path.join(__dirname, '..', 'case_reports_upload.csv');
 
 console.log(`📂 Parsing CSV: ${filePath}\n`);
 

@@ -2,9 +2,9 @@
  * Check admin user's assigned location
  */
 
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const mongoose = require('mongoose');
-const { User } = require('./models');
+const { User } = require('../models');
 
 async function checkAdminLocation() {
   try {

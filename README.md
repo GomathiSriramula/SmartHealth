@@ -235,6 +235,11 @@ SmartHealth/
 │   ├── services/                # alertChecker (threshold/escalation logic), alertNotifier
 │   ├── utils/                   # auth, mailer, mlPredictor, notificationRecipients,
 │   │                             #   districtCoordinates, locationGuard, auditLogger, publisher
+│   ├── scripts/                 # One-off dev/diagnostic scripts (NOT part of the running app):
+│   │                             #   check_*/debug_*/test_* inspectors, verify_csv,
+│   │                             #   cleanup-orphan, remediate_missing_alerts, clear_db.
+│   │                             #   Run from anywhere: `node backend2/scripts/check_users.js`
+│   │                             #   ⚠️ clear_db.js DROPS EVERY COLLECTION — never run against prod.
 │   └── index.js                 # Express app entrypoint
 │
 ├── ml-service/

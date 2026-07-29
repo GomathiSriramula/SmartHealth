@@ -1,8 +1,8 @@
 // cleanup-orphans.js — run once: node cleanup-orphans.js
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
 const mongoose = require("mongoose");
-const { CaseReport, Prediction } = require("./models");
-const Alert = require("./models/Alert");
+const { CaseReport, Prediction } = require("../models");
+const Alert = require("../models/Alert");
 
 async function run() {
     await mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/smart_health");
