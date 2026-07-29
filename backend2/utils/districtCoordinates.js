@@ -42,6 +42,13 @@ const DISTRICT_COORDINATES = {
     "warangal": { lat: 17.9689, lng: 79.5941 },
     "warangal urban": { lat: 17.9689, lng: 79.5941 },
     "hanumakonda": { lat: 18.0000, lng: 79.5800 },
+    // 🔑 FIX: "Hanamkonda" (missing the 'u') is the spelling actually used in
+    // real report/alert data, but it doesn't match "hanumakonda" above by
+    // exact key OR by the loose substring match below (neither string
+    // contains the other), so this district was silently vanishing from the
+    // Outbreak Map for every role -- no coordinate match, and none of its
+    // case reports have lat/lng set either, so the fallback also failed.
+    "hanamkonda": { lat: 18.0000, lng: 79.5800 },
     "warangal rural": { lat: 18.0000, lng: 79.5800 },
     "yadadri bhuvanagiri": { lat: 17.5500, lng: 78.8900 },
 };

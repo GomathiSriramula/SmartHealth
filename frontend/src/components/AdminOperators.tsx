@@ -58,6 +58,8 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<OperatorFormState>(initialForm);
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [exporting, setExporting] = useState<string | null>(null);
 
   // CSV bulk-upload state
   const [bulkFile, setBulkFile] = useState<File | null>(null);
@@ -80,7 +82,9 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
   const loadOperators = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/auth/operators`, {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      const response = await fetch(`${API_URL}/auth/operators?${params.toString()}`, {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
@@ -95,11 +99,60 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, search]);
 
   useEffect(() => {
-    loadOperators();
+    const handle = setTimeout(() => {
+      loadOperators();
+    }, 300);
+    return () => clearTimeout(handle);
   }, [loadOperators]);
+
+  const handleExport = async (format: "csv" | "excel") => {
+    setExporting(format);
+    try {
+      const response = await fetch(`${API_URL}/auth/operators/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Export failed");
+      }
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `SmartHealth_Operators_${Date.now()}.${format === "excel" ? "xlsx" : "csv"}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Export failed");
+    } finally {
+      setExporting(null);
+    }
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch(`${API_URL}/auth/operators/csv-template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("Failed to download template");
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = "SmartHealth_Operators_Template.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      setBulkResult(error instanceof Error ? error.message : "Failed to download template");
+    }
+  };
 
   const loadAdmins = useCallback(async () => {
     setAdminsLoading(true);
@@ -455,7 +508,14 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
           <div className="mt-6 border-t border-gray-100 pt-6">
             <h3 className="text-sm font-semibold text-gray-900">Bulk import from CSV</h3>
             <p className="mt-1 text-xs text-gray-500">
-              Columns: name (or username), email, password, district. One operator per row.
+              Columns: name (or username), email, password, district. One operator per row.{" "}
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="font-medium text-blue-600 hover:text-blue-700"
+              >
+                Download template
+              </button>
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <input
@@ -478,19 +538,46 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
         </section>
 
         <section className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Current Operators</h2>
-              <p className="text-sm text-gray-500">Showing all district operator accounts.</p>
+              <p className="text-sm text-gray-500">
+                {operators.length} operator{operators.length === 1 ? "" : "s"}
+              </p>
             </div>
-            <button
-              type="button"
-              onClick={loadOperators}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              disabled={loading}
-            >
-              Refresh
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                placeholder="Search name, email, or district..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={loadOperators}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                disabled={loading}
+              >
+                Refresh
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("csv")}
+                disabled={exporting !== null}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+              >
+                {exporting === "csv" ? "Exporting..." : "Export CSV"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleExport("excel")}
+                disabled={exporting !== null}
+                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+              >
+                {exporting === "excel" ? "Exporting..." : "Export Excel"}
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -499,7 +586,7 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
             </div>
           ) : operators.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-8 text-center text-gray-500">
-              No district operators found.
+              {search.trim() ? "No operators match your search." : "No district operators found."}
             </div>
           ) : (
             <div className="space-y-4">

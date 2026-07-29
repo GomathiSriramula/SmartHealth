@@ -5,6 +5,7 @@ const csv = require("csv-parser");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const XLSX = require("xlsx");
 const { createUser, verifyPassword, signToken, authMiddleware, requireRole, hashPassword } = require("../utils/auth");
 const { User } = require("../models");
 const { logAudit } = require("../utils/auditLogger");
@@ -24,14 +25,27 @@ function formatOperator(user) {
 // Register
 router.post("/auth/register", async (req, res) => {
   try {
-    const { username, password, email, role } = req.body;
+    const { username: rawUsername, password, email: rawEmail, role } = req.body;
+    // 🔑 FIX: this is the most public-facing account-creation path in the
+    // app (unauthenticated, self-service) yet it previously had the WEAKEST
+    // server-side validation of all of them -- no minimum password length
+    // (a 1-character password was accepted; the only guard was an HTML
+    // `minLength` attribute on the frontend form, trivially bypassed via a
+    // direct API call) and no input trimming, unlike /auth/operators and
+    // /auth/admins which both already enforce this.
+    const username = (rawUsername || '').trim();
+    const email = (rawEmail || '').trim();
+
     if (!username || !password || !email)
       return res.status(400).json({ error: "username, password, and email are required" });
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
 
     if (role && role !== 'USER') {
       return res.status(403).json({ error: "Public registration is restricted to USER accounts only" });
     }
-    
+
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
@@ -41,17 +55,24 @@ router.post("/auth/register", async (req, res) => {
     // Check if username exists
     const existingUser = await User.findOne({ username });
     if (existingUser) return res.status(409).json({ error: "username already exists" });
-    
+
     // Check if email exists
     const existingEmail = await User.findOne({ email });
     if (existingEmail) return res.status(409).json({ error: "email already exists" });
-    
+
     const user = await createUser(username, password, email, {
       role: 'USER'
     });
     return res.json({ id: user._id, username: user.username, email: user.email, role: user.role });
   } catch (e) {
     console.error(e);
+    // Same race-condition handling as /auth/operators: a concurrent request
+    // can slip past the findOne checks above and hit MongoDB's unique index
+    // directly -- return a clean 409 instead of a raw E11000 message.
+    if (e.code === 11000) {
+      const field = Object.keys(e.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ error: `${field} already exists` });
+    }
     return res
       .status(500)
       .json({ error: "registration failed", detail: e.message });
@@ -60,13 +81,24 @@ router.post("/auth/register", async (req, res) => {
 
 router.post("/auth/operators", authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { name, username, password, email, district } = req.body;
+    const { name, username, password, email: rawEmail, district: rawDistrict } = req.body;
     const operatorName = (name || username || '').trim();
+    // 🔑 FIX: trim BEFORE the required-field check, not after. Previously
+    // a whitespace-only district (e.g. "   ") passed the `!district` check
+    // (a non-empty string is truthy) and was then trimmed down to "" when
+    // stored. getUserDistrict()/buildDistrictFilter() treat an empty
+    // district as "no restriction", so that operator silently got
+    // unrestricted, ADMIN-equivalent read access across every district.
+    const district = (rawDistrict || '').trim();
+    const email = (rawEmail || '').trim();
 
     if (!operatorName || !password || !email || !district) {
       return res.status(400).json({
         error: "name, password, email, and district are required"
       });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -82,7 +114,7 @@ router.post("/auth/operators", authMiddleware, requireRole('ADMIN'), async (req,
 
     const user = await createUser(operatorName, password, email, {
       role: 'OPERATOR',
-      locations: [district.trim()]
+      locations: [district]
     });
 
     return res.status(201).json({
@@ -90,13 +122,26 @@ router.post("/auth/operators", authMiddleware, requireRole('ADMIN'), async (req,
     });
   } catch (e) {
     console.error(e);
+    // A concurrent request can slip past the findOne checks above and hit
+    // MongoDB's unique index instead -- surface that as the same clean 409
+    // the normal path returns, rather than a raw E11000 error message.
+    if (e.code === 11000) {
+      const field = Object.keys(e.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ error: `${field} already exists` });
+    }
     return res.status(500).json({ error: "operator creation failed", detail: e.message });
   }
 });
 
 router.get("/auth/operators", authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
-    const operators = await User.find({ role: 'OPERATOR' }).sort({ created_at: -1 }).lean();
+    const { search } = req.query;
+    const query = { role: 'OPERATOR' };
+    if (search && search.trim()) {
+      const re = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [{ username: re }, { email: re }, { locations: re }];
+    }
+    const operators = await User.find(query).sort({ created_at: -1 }).lean();
     return res.json({ operators: operators.map(formatOperator) });
   } catch (e) {
     console.error(e);
@@ -104,11 +149,74 @@ router.get("/auth/operators", authMiddleware, requireRole('ADMIN'), async (req, 
   }
 });
 
+/**
+ * GET /auth/operators/csv-template
+ * A blank CSV with the exact header row (+ one example row) expected by
+ * POST /auth/operators/bulk-upload, so an admin doesn't have to guess
+ * column names/order.
+ */
+router.get("/auth/operators/csv-template", authMiddleware, requireRole('ADMIN'), (req, res) => {
+  const csvContent =
+    "name,email,password,district\r\n" +
+    "jane.doe,jane.doe@example.com,ChangeMe123!,Hyderabad\r\n";
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="SmartHealth_Operators_Template.csv"');
+  return res.send(csvContent);
+});
+
+/**
+ * GET /auth/operators/export?format=csv|excel
+ * Export the current operator roster. Registered before /auth/operators/:id
+ * (that route is PUT/DELETE, different methods, but kept consistent with
+ * the /alerts/export-before-/alerts/:id ordering rule used elsewhere).
+ */
+router.get("/auth/operators/export", authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const operators = await User.find({ role: 'OPERATOR' }).sort({ created_at: -1 }).lean();
+    const formatted = operators.map(formatOperator);
+
+    const headers = ["Name", "Email", "State", "District", "Created At"];
+    const rows = formatted.map((o) => [
+      o.name,
+      o.email,
+      o.state,
+      o.district,
+      o.created_at ? new Date(o.created_at).toLocaleString() : "",
+    ]);
+
+    const format = (req.query.format || "csv").toLowerCase();
+    if (format === "excel") {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, "Operators");
+      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="SmartHealth_Operators_${Date.now()}.xlsx"`);
+      return res.send(buffer);
+    }
+
+    const escapeCsv = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    const csvLines = [headers, ...rows].map((row) => row.map(escapeCsv).join(","));
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="SmartHealth_Operators_${Date.now()}.csv"`);
+    return res.send(csvLines.join("\r\n"));
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: "failed to export operators", detail: e.message });
+  }
+});
+
 router.put("/auth/operators/:id", authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
-    const { name, username, password, email, district } = req.body;
+    const { name, username, password, email: rawEmail, district: rawDistrict } = req.body;
     const operatorName = (name || username || '').trim();
     const operatorId = req.params.id;
+    // Same fix as POST /auth/operators: trim BEFORE validating so a
+    // whitespace-only district can't slip through and strip the operator's
+    // district restriction (see comment there for the full explanation).
+    const district = (rawDistrict || '').trim();
+    const email = (rawEmail || '').trim();
 
     const operator = await User.findById(operatorId);
     if (!operator || operator.role !== 'OPERATOR') {
@@ -119,6 +227,11 @@ router.put("/auth/operators/:id", authMiddleware, requireRole('ADMIN'), async (r
       return res.status(400).json({ error: "name, email, and district are required" });
     }
 
+    const trimmedPassword = (password || '').trim();
+    if (trimmedPassword && trimmedPassword.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+
     const existingName = await User.findOne({ username: operatorName, _id: { $ne: operatorId } });
     if (existingName) return res.status(409).json({ error: "name already exists" });
 
@@ -127,10 +240,10 @@ router.put("/auth/operators/:id", authMiddleware, requireRole('ADMIN'), async (r
 
     operator.username = operatorName;
     operator.email = email;
-    operator.locations = [district.trim()];
+    operator.locations = [district];
 
-    if (password && password.trim()) {
-      operator.passwordHash = await hashPassword(password.trim());
+    if (trimmedPassword) {
+      operator.passwordHash = await hashPassword(trimmedPassword);
     }
 
     await operator.save();
@@ -138,6 +251,10 @@ router.put("/auth/operators/:id", authMiddleware, requireRole('ADMIN'), async (r
     return res.json({ operator: formatOperator(operator) });
   } catch (e) {
     console.error(e);
+    if (e.code === 11000) {
+      const field = Object.keys(e.keyPattern || {})[0] || 'field';
+      return res.status(409).json({ error: `${field} already exists` });
+    }
     return res.status(500).json({ error: "operator update failed", detail: e.message });
   }
 });
@@ -242,7 +359,12 @@ router.post(
             await createUser(operatorName, password, email, { role: 'OPERATOR', locations: [district] });
             created++;
           } catch (rowError) {
-            errors.push({ line, error: rowError.message, data });
+            if (rowError.code === 11000) {
+              const field = Object.keys(rowError.keyPattern || {})[0] || 'field';
+              errors.push({ line, error: `${field} already exists`, data });
+            } else {
+              errors.push({ line, error: rowError.message, data });
+            }
           }
         }
 
