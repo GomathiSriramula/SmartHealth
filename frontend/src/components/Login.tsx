@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Alert from "./Alert";
+import PasswordInput from "./PasswordInput";
 import { API_URL } from "./api";
 
 interface LoginProps {
@@ -100,8 +101,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onShowRegister, onShowFor
                 Forgot password?
               </button>
             </div>
-            <input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

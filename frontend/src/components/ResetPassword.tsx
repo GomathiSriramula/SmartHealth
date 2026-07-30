@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Alert from "./Alert";
+import PasswordInput from "./PasswordInput";
 import { API_URL } from "./api";
 
 interface ResetPasswordProps {
@@ -83,8 +84,7 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, email, onResetSucc
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -97,8 +97,7 @@ const ResetPassword: React.FC<ResetPasswordProps> = ({ token, email, onResetSucc
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
-            <input
-              type="password"
+            <PasswordInput
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

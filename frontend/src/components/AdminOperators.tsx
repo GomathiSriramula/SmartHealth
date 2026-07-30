@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Alert from "./Alert";
 import LoadingSpinner from "./LoadingSpinner";
+import PasswordInput from "./PasswordInput";
 import { API_URL } from "./api";
 
 interface OperatorAccount {
@@ -452,8 +453,7 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
               <label className="mb-2 block text-sm font-medium text-gray-700">
                 Password {editingId ? "(leave blank to keep current)" : ""}
               </label>
-              <input
-                type="password"
+              <PasswordInput
                 value={form.password}
                 onChange={(event) => setForm({ ...form, password: event.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
@@ -672,8 +672,7 @@ const AdminOperators: React.FC<AdminOperatorsProps> = ({ token, currentUsername 
             </div>
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-700">Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={adminForm.password}
                 onChange={(event) => setAdminForm({ ...adminForm, password: event.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Alert from "./Alert";
+import PasswordInput from "./PasswordInput";
 import { API_URL } from "./api";
 
 interface ChangePasswordModalProps {
@@ -74,8 +75,7 @@ const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ token, onClos
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Current Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -85,8 +85,7 @@ const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ token, onClos
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -97,8 +96,7 @@ const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ token, onClos
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
