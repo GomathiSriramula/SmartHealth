@@ -94,11 +94,16 @@ const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onShowLogin }) => {
           </form>
         )}
 
-        <div className="mt-6 text-center">
-          <button onClick={onShowLogin} className="text-blue-600 hover:text-blue-700 font-medium">
-            Back to Sign In
-          </button>
-        </div>
+        {/* Only shown pre-submit — the success state already renders its own
+            prominent "Back to Sign In" button, so keeping this link visible
+            there duplicated the same action twice on one screen. */}
+        {!submitted && (
+          <div className="mt-6 text-center">
+            <button onClick={onShowLogin} className="text-blue-600 hover:text-blue-700 font-medium">
+              Back to Sign In
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

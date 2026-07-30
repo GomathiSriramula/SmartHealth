@@ -606,19 +606,29 @@ router.post("/auth/forgot-password", async (req, res) => {
 
     const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password?token=${rawToken}&email=${encodeURIComponent(email)}`;
 
-    try {
-      await sendEmail(
-        user.email,
-        "SmartHealth — Password Reset Request",
-        `You requested a password reset. Visit this link to set a new password (valid for 1 hour):\n\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`,
-        `<p>You requested a password reset for your SmartHealth account.</p><p><a href="${resetUrl}">Click here to reset your password</a> (valid for 1 hour).</p><p>If you didn't request this, you can safely ignore this email.</p>`
-      );
-    } catch (emailError) {
-      // Don't leak the failure to the client -- still return the generic
-      // response, so this endpoint can't be used to probe email
-      // deliverability per-account either.
-      console.error("Failed to send password reset email:", emailError.message);
-    }
+    // 🔑 Deliberately NOT awaited. Awaiting the SMTP handshake made this
+    // endpoint take ~5.4s for a registered address vs ~65ms for an unknown
+    // one, which caused two problems:
+    //   1. UX: the user sat on a "Sending..." button for 5+ seconds with no
+    //      feedback, long enough to assume the feature was broken.
+    //   2. Security: that 5s-vs-65ms difference was a timing side-channel
+    //      revealing whether an address has an account — defeating the point
+    //      of returning an identical generic response below.
+    // Delivery failures are logged server-side only; the client gets the same
+    // generic message either way. The .catch() is required — without it a
+    // rejected floating promise becomes an unhandled rejection.
+    sendEmail(
+      user.email,
+      "SmartHealth — Password Reset Request",
+      `You requested a password reset. Visit this link to set a new password (valid for 1 hour):\n\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`,
+      `<p>You requested a password reset for your SmartHealth account.</p><p><a href="${resetUrl}">Click here to reset your password</a> (valid for 1 hour).</p><p>If you didn't request this, you can safely ignore this email.</p>`
+    )
+      .then(() => {
+        console.log(`✅ Password reset email queued for ${user.email}`);
+      })
+      .catch((emailError) => {
+        console.error("❌ Failed to send password reset email:", emailError.message);
+      });
 
     req.user = { username: user.username, role: user.role };
     await logAudit({ action: 'FORGOT_PASSWORD_REQUESTED', req, entityId: user._id });
