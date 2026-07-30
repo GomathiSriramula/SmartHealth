@@ -9,6 +9,7 @@ const { getManualNotificationRecipients } = require('../utils/notificationRecipi
 const { getDistrictCoordinates } = require('../utils/districtCoordinates');
 const { CaseReport, Prediction } = require('../models');
 const { logAudit } = require('../utils/auditLogger');
+const { createNotification } = require('../services/notificationCenter');
 
 const router = express.Router();
 
@@ -289,6 +290,21 @@ router.post('/alerts/:id/notify', authMiddleware, async (req, res) => {
       },
     });
 
+    // In-app record of this manual notify, mirroring getManualNotificationRecipients'
+    // own recipient rule: ADMIN sends -> only that district's operator (+ admins)
+    // sees it; OPERATOR sends -> only admins see it. Purely additive to the
+    // existing email send above -- never blocks or replaces it.
+    await createNotification({
+      type: 'ALERT_NOTIFIED',
+      title: `Alert reminder sent: ${updatedAlert.location}`,
+      message: `${req.user.username || userRole} sent a reminder notification for the alert at ${updatedAlert.location}.`,
+      location: updatedAlert.location,
+      severity: updatedAlert.riskLevel || null,
+      entityId: updatedAlert._id,
+      entityType: 'Alert',
+      audience: userRole === 'OPERATOR' ? 'ADMIN' : 'DISTRICT',
+    });
+
     return res.json({
       success: result.success,
       message: result.message,
@@ -439,6 +455,17 @@ router.post('/alerts/:id/resolve', authMiddleware, async (req, res) => {
         location: updatedAlert.location,
         resolutionNotes: req.body.reason || 'Manually resolved',
       },
+    });
+
+    await createNotification({
+      type: 'ALERT_RESOLVED',
+      title: `Alert resolved: ${updatedAlert.location}`,
+      message: req.body.reason || `Alert manually resolved at ${updatedAlert.location}.`,
+      location: updatedAlert.location,
+      severity: null,
+      entityId: updatedAlert._id,
+      entityType: 'Alert',
+      audience: 'PUBLIC',
     });
 
     return res.json({

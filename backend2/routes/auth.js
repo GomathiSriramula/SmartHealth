@@ -10,6 +10,7 @@ const { createUser, verifyPassword, signToken, authMiddleware, requireRole, hash
 const { User } = require("../models");
 const { logAudit } = require("../utils/auditLogger");
 const { sendEmail } = require("../utils/mailer");
+const { createNotification } = require("../services/notificationCenter");
 
 function formatOperator(user) {
   return {
@@ -115,6 +116,17 @@ router.post("/auth/operators", authMiddleware, requireRole('ADMIN'), async (req,
     const user = await createUser(operatorName, password, email, {
       role: 'OPERATOR',
       locations: [district]
+    });
+
+    await createNotification({
+      type: 'OPERATOR_CREATED',
+      title: `New operator account created`,
+      message: `Operator "${operatorName}" was created for ${district}.`,
+      location: district,
+      severity: null,
+      entityId: user._id,
+      entityType: 'User',
+      audience: 'ADMIN',
     });
 
     return res.status(201).json({
@@ -375,6 +387,18 @@ router.post(
           req,
           metadata: { totalRows: rows.length, created, failed: errors.length },
         });
+
+        if (created > 0) {
+          await createNotification({
+            type: 'OPERATOR_CREATED',
+            title: `${created} operator account(s) created`,
+            message: `Bulk upload created ${created} operator account(s) (${errors.length} row(s) failed).`,
+            location: null,
+            severity: null,
+            entityType: 'User',
+            audience: 'ADMIN',
+          });
+        }
 
         return res.json({
           message: "Operator CSV processed",

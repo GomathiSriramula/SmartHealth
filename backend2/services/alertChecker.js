@@ -1,6 +1,7 @@
 const Alert = require('../models/Alert');
 const { Prediction } = require('../models'); // Use the same Prediction model as predictions route
 const { notifyAlertCreation } = require('../utils/mailer');
+const { createNotification } = require('./notificationCenter');
 
 /**
  * Alert Checker Service
@@ -61,6 +62,17 @@ async function checkForAlerts(prediction) {
         await activeAlert.save();
 
         console.log(`✅ [Alert Resolver] Alert resolved for ${location} - Risk: ${currentRisk}`);
+
+        await createNotification({
+          type: 'ALERT_RESOLVED',
+          title: `Alert resolved: ${location}`,
+          message: `Risk dropped to ${currentRisk} at ${location}. Alert auto-resolved.`,
+          location,
+          severity: null,
+          entityId: activeAlert._id,
+          entityType: 'Alert',
+          audience: 'PUBLIC',
+        });
 
         return {
           alert: activeAlert,
@@ -174,6 +186,17 @@ async function checkForAlerts(prediction) {
       );
       newAlert.notificationSent = notificationResult.success;
 
+      await createNotification({
+        type: 'ALERT_CREATED',
+        title: `New outbreak alert: ${location}`,
+        message: `HIGH risk assessment recorded at ${location}.`,
+        location,
+        severity: 'HIGH',
+        entityId: newAlert._id,
+        entityType: 'Alert',
+        audience: 'PUBLIC',
+      });
+
       return {
         alert: newAlert,
         action: 'created',
@@ -279,6 +302,17 @@ async function checkForAlerts(prediction) {
         notificationResult.success ? null : (notificationResult.message || notificationResult.error || 'Unknown error')
       );
       newAlert.notificationSent = notificationResult.success;
+
+      await createNotification({
+        type: 'ALERT_CREATED',
+        title: `New outbreak alert: ${location}`,
+        message: `${ALERT_THRESHOLD} consecutive HIGH risk assessments recorded at ${location}.`,
+        location,
+        severity: 'HIGH',
+        entityId: newAlert._id,
+        entityType: 'Alert',
+        audience: 'PUBLIC',
+      });
 
       return {
         alert: newAlert,

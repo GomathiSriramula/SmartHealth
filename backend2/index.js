@@ -12,6 +12,7 @@ const predictionsRouter = require("./routes/predictions");
 const uploadsRouter = require("./routes/uploads");
 const alertsApiRouter = require("./routes/alertsApi");
 const auditLogsRouter = require("./routes/auditLogs");
+const notificationsRouter = require("./routes/notifications");
 
 const { ensureDefaultAdmin } = require("./utils/auth");
 
@@ -82,6 +83,7 @@ app.use("/", predictionsRouter);
 app.use("/", uploadsRouter);
 app.use("/api", alertsApiRouter);
 app.use("/", auditLogsRouter);
+app.use("/", notificationsRouter);
 
 // JSON 404 for anything that didn't match a route above — keeps error
 // responses consistent with the rest of the JSON API instead of Express's

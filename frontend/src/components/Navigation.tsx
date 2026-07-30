@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ChangePasswordModal from "./ChangePasswordModal";
+import NotificationBell from "./NotificationBell";
 
 interface NavigationProps {
   onBackToLanding: () => void;
@@ -74,6 +75,8 @@ const Navigation: React.FC<NavigationProps> = ({
                 System Online
               </span>
             </div>
+
+            {token && <NotificationBell token={token} />}
 
             {username && (
               <div className="flex items-center space-x-3 px-4 py-2 bg-blue-50 rounded-lg">

@@ -10,6 +10,7 @@ const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
 const { checkForAlerts } = require("../services/alertChecker");
 const { getPredictionWithFallback } = require("../utils/mlPredictor");
+const { createNotification } = require("../services/notificationCenter");
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -108,6 +109,17 @@ async function analyzeCSVReportsAndNotify(reports, authenticatedUsername) {
     // 🔑 Run checkForAlerts() for every HIGH prediction
     if (analysis.riskLevel === "high") {
       highRiskCount++;
+
+      await createNotification({
+        type: 'HIGH_RISK_REPORT',
+        title: `High-risk case reported: ${predictionData.location}`,
+        message: `A new high-risk case report was recorded at ${predictionData.location} (CSV upload).`,
+        location: report.location || null,
+        severity: 'HIGH',
+        entityId: report._id || null,
+        entityType: 'CaseReport',
+        audience: 'DISTRICT',
+      });
 
       try {
         const predictionForAlert = {
@@ -401,6 +413,24 @@ router.post("/upload/case-reports", authMiddleware, requireRole('ADMIN', 'OPERAT
 
           // Delete the uploaded file after processing
           fs.unlinkSync(filePath);
+
+          if (inserted > 0) {
+            const uploaderDistrict = getUserDistrict(req.user);
+            await createNotification({
+              type: 'CSV_UPLOAD_SUCCESS',
+              title: `CSV upload completed: ${inserted} report(s)`,
+              message: `${authenticatedUsername} uploaded ${inserted} case report(s)` +
+                (uploaderDistrict ? ` for ${uploaderDistrict}.` : '.'),
+              location: uploaderDistrict || null,
+              severity: null,
+              entityType: 'CaseReport',
+              // OPERATOR uploads are always scoped to one district -> visible to
+              // that district + admins. ADMIN uploads can span multiple
+              // districts (or none), so there's no single district to scope
+              // to -- admin-only, matching OPERATOR_CREATED's admin-only scope.
+              audience: req.user.role === 'OPERATOR' ? 'DISTRICT' : 'ADMIN',
+            });
+          }
 
           const response = {
             message: "CSV file processed successfully",

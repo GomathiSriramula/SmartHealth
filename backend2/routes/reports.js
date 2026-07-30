@@ -11,6 +11,7 @@ const XLSX = require("xlsx");
 const { authMiddleware, requireRole, buildDistrictFilter, getUserDistrict, operatorMatchesDistrict } = require("../utils/auth");
 const locationGuard = require("../utils/locationGuard");
 const { logAudit } = require("../utils/auditLogger");
+const { createNotification } = require("../services/notificationCenter");
 
 // Fields any permitted editor (ADMIN or OPERATOR-in-district) may change.
 const EDITABLE_REPORT_FIELDS = [
@@ -110,6 +111,17 @@ async function createPredictionAndNotify(report, analysis) {
     // Save prediction to database
     const prediction = await Prediction.create(predictionData);
     console.log(`✅ [Case Report Prediction] Prediction created: ${prediction._id}`);
+
+    await createNotification({
+      type: 'HIGH_RISK_REPORT',
+      title: `High-risk case reported: ${predictionData.location}`,
+      message: `A new high-risk case report was recorded at ${predictionData.location}.`,
+      location: report.location || null,
+      severity: 'HIGH',
+      entityId: report._id,
+      entityType: 'CaseReport',
+      audience: 'DISTRICT',
+    });
 
     // 🚨 Check for alerts. Note: this requires TWO consecutive HIGH-risk
     // predictions at the same location before an Alert is actually created —
