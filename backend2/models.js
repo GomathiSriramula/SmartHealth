@@ -19,6 +19,12 @@ const CaseReportSchema = new mongoose.Schema(
   { timestamps: { createdAt: "created_at" } }
 );
 
+// `location` is the primary district-scoping filter used everywhere
+// (buildDistrictFilter, reports/analytics/export queries); `reported_at`
+// backs the default newest-first sort and date-range filters.
+CaseReportSchema.index({ location: 1 });
+CaseReportSchema.index({ reported_at: -1 });
+
 
 const PredictionSchema = new mongoose.Schema(
   {
@@ -49,6 +55,11 @@ const PredictionSchema = new mongoose.Schema(
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );
+
+// Matches alertChecker.js's exact query shape:
+// Prediction.find({ location: ... }).sort({ predictedDate: -1 }).limit(...)
+// — the consecutive-HIGH-risk check this schema exists to support.
+PredictionSchema.index({ location: 1, predictedDate: -1 });
 
 const CaseReport = mongoose.model(
   "CaseReport",

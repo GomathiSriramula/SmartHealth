@@ -18,6 +18,17 @@ const { ensureDefaultAdmin } = require("./utils/auth");
 
 const app = express();
 
+// Trust exactly one reverse-proxy hop (the platform's load balancer/ingress —
+// Render, Railway, Heroku, Nginx, an ALB, etc.). Every real deployment target
+// sits behind one, and without this Express reads the proxy's own IP off the
+// socket for every request, not the real client's. That breaks two things
+// silently: express-rate-limit below would bucket ALL users as one IP
+// (one person's failed logins could rate-limit everyone), and the audit
+// log's IP capture (utils/auditLogger.js) would record the same proxy IP
+// for every actor, losing all forensic value. Adjust the hop count if you
+// add another proxy layer in front of this one.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 
 const FRONTEND_ORIGINS =
@@ -37,7 +48,10 @@ app.use(
 );
 
 app.use(express.json({ limit: "1mb" }));
-app.use(morgan("dev"));
+// "dev" is colored/concise for a local terminal; "combined" (Apache-style,
+// includes client IP, timestamp, status, response size) is what you actually
+// want in production log aggregation.
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // Rate limit auth endpoints specifically — brute force / spam protection
 const authLimiter = rateLimit({
@@ -137,11 +151,36 @@ async function start() {
     console.error("Failed to ensure default admin:", e.message);
   }
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`SmartHealth Node ingestion API listening on port ${PORT}`);
     const connected = mongoose.connection && mongoose.connection.readyState === 1;
     console.log(`MongoDB connected: ${connected ? "yes" : "no"}`);
   });
+
+  // Process managers and CI send SIGTERM on redeploy/scale-down/shutdown,
+  // not just Ctrl+C. Without handling it,
+  // Node kills the process immediately — dropping any in-flight request and
+  // leaving the Mongoose connection to close uncleanly. Stop accepting new
+  // connections, let in-flight ones finish, then close Mongo before exiting.
+  const shutdown = (signal) => {
+    console.log(`${signal} received, shutting down gracefully...`);
+    server.close(async () => {
+      try {
+        await mongoose.connection.close();
+      } catch (e) {
+        console.error("Error closing MongoDB connection:", e.message);
+      }
+      console.log("Shutdown complete.");
+      process.exit(0);
+    });
+    // Don't hang forever waiting for slow/stuck connections to drain.
+    setTimeout(() => {
+      console.error("Forced shutdown after timeout.");
+      process.exit(1);
+    }, 10000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 start();

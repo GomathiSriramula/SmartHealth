@@ -4,6 +4,14 @@ Community health surveillance for Telangana districts: field workers submit case
 
 ---
 
+## Further reading
+
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the three services fit together, the full case-report-to-alert request flow, RBAC, and the data model
+- **[ALERTS.md](ALERTS.md)** — the outbreak alert lifecycle in depth: trigger threshold, dedup, resolution, manual actions
+- **[NOTIFICATIONS.md](NOTIFICATIONS.md)** — the in-app Notification Center and the email pipeline, how they relate without duplicating each other
+
+---
+
 ## Overview
 
 SmartHealth has three services:
